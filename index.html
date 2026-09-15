@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#102c2b" />
+    <title>Presensi Siswa · Ruang Kelas</title>
+  </head>
+  <body>
+    <div id="app" class="app-shell">
+      <aside class="sidebar" aria-label="Navigasi utama">
+        <div class="brand">
+          <div class="brand-mark" aria-hidden="true"><span></span><span></span><span></span></div>
+          <div><strong>Ruang Kelas</strong><small>Presensi siswa</small></div>
+        </div>
+        <div class="sidebar-label">MENU UTAMA</div>
+        <nav class="main-nav">
+          <button class="nav-item active" data-view="scan"><span class="nav-icon">⌁</span><span>Presensi Siswa</span></button>
+          <button class="nav-item" data-view="dashboard"><span class="nav-icon">▦</span><span>Dashboard Wali Kelas</span></button>
+          <button class="nav-item" data-view="admin"><span class="nav-icon">⚙</span><span>Manajemen Device</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <div class="school-card">
+            <div class="school-logo">SA</div>
+            <div><b>Sekolah Angkasa</b><small>Semester Genap 2024/25</small></div>
+          </div>
+          <div class="profile-row"><div class="avatar">NA</div><div><b>Bu Nadia</b><small>Wali Kelas</small></div><span class="more">•••</span></div>
+        </div>
+      </aside>
+
+      <main class="main-content">
+        <header class="topbar">
+          <div class="breadcrumbs"><span>Ruang Kelas</span><i>/</i><strong id="page-context">Presensi / Scan</strong></div>
+          <div class="topbar-actions"><span class="live-dot"><i></i> Sistem aktif</span><button class="icon-button" aria-label="Notifikasi">♢<span class="notification-dot"></span></button><div class="mini-avatar">NA</div></div>
+        </header>
+
+        <section id="login-view" class="view active-view">
+          <div class="login-layout"><div class="login-copy"><p class="eyebrow">AKSES PRESENSI</p><h1>Masuk untuk mulai presensi <span class="wave">✦</span></h1><p class="subcopy">Identitas siswa diambil dari akun yang sedang login. QR di lokasi hanya digunakan untuk mengenali cabang.</p><div class="login-points"><div><span>1</span><p><b>Login siswa</b><small>Pilih akun yang sudah terdaftar.</small></p></div><div><span>2</span><p><b>Scan QR cabang</b><small>Gunakan QR yang ditempel di lokasi belajar.</small></p></div><div><span>3</span><p><b>Presensi tercatat</b><small>Scan pertama datang, scan kedua pulang.</small></p></div></div></div><div class="login-card card"><div class="login-brand"><div class="brand-mark"><span></span><span></span><span></span></div><div><b>Ruang Kelas</b><small>Presensi siswa</small></div></div><div class="role-tabs"><button class="role-tab active" data-role="student">Login Siswa</button><button class="role-tab" data-role="teacher">Wali Kelas</button><button class="role-tab" data-role="admin">Admin</button></div><div id="student-login-panel"><label for="student-account">Akun siswa terdaftar</label><select id="student-account"><option value="">Pilih nama siswa</option></select><small class="input-hint">Data diambil dari database siswa.</small><button class="primary-button login-submit" id="student-login-submit">Masuk sebagai siswa <span>→</span></button></div><div id="teacher-login-panel" hidden><label for="teacher-password">Password Wali Kelas</label><input class="staff-password" id="teacher-password" type="password" autocomplete="current-password" placeholder="Masukkan password" /><p class="login-note">Login staf divalidasi oleh server. Siswa tidak dapat membuka dashboard.</p><button class="primary-button login-submit" id="teacher-login-submit">Buka Dashboard Wali Kelas <span>→</span></button></div><div id="admin-login-panel" hidden><label for="admin-password">Password Admin</label><input class="staff-password" id="admin-password" type="password" autocomplete="current-password" placeholder="Masukkan password" /><p class="login-note">Hanya Admin yang dapat mengelola dan mereset binding perangkat.</p><button class="primary-button login-submit" id="admin-login-submit">Buka Manajemen Device <span>→</span></button></div><p class="security-note">Akun siswa tidak memiliki akses ke role staf.</p></div></div>
+        </section>
+
+        <section id="scan-view" class="view">
+          <div class="page-intro"><div><p class="eyebrow">PRESENSI SISWA · <span id="session-role">SISWA</span></p><h1 id="greeting-name">Halo, siswa <span class="wave">✦</span></h1><p class="subcopy">Scan QR cabang untuk mencatat kehadiran Anda.</p></div><div class="date-chip"><span class="calendar-icon">▣</span><span><b id="display-date">15 Sep 2026</b><small>Hari ini</small></span></div></div>
+          <div class="scan-layout">
+            <div class="scan-card card">
+              <div class="student-identity"><span class="student-avatar" id="session-avatar">—</span><div><b id="session-student-name">Belum login</b><small id="session-student-meta">Login untuk melihat kelas dan cabang</small></div><button class="text-button" id="logout-button">Ganti akun</button></div>
+              <div class="card-heading"><div><span class="section-kicker">PRESENSI HARI INI</span><h2>Scan QR Cabang</h2></div><span class="status-pill ready"><i></i> Kamera siap</span></div>
+              <div class="scanner-stage" id="scanner-stage">
+                <div class="scanner-corner top-left"></div><div class="scanner-corner top-right"></div><div class="scanner-corner bottom-left"></div><div class="scanner-corner bottom-right"></div>
+                <div class="scanner-orbit"><div class="scan-glyph">▦</div></div><div class="scan-line"></div>
+                <h3>Arahkan ke QR cabang</h3><p>QR hanya berisi ID lokasi, bukan data siswa</p>
+                <button class="camera-button" id="camera-button"><span>◉</span> Aktifkan kamera</button>
+              </div>
+              <div class="manual-divider"><span>atau masukkan ID cabang secara manual</span></div>
+              <form class="manual-form" id="scan-form"><label for="barcode-input">ID QR Cabang</label><div class="input-row"><div class="input-with-icon"><span>⌕</span><input id="barcode-input" autocomplete="off" placeholder="Contoh: CABANG-001" /><button type="button" class="clear-input" id="clear-input" aria-label="Hapus">×</button></div><button class="primary-button" type="submit">Validasi QR <span>→</span></button></div><small class="input-hint">QR cabang contoh: CABANG-001</small></form>
+              <div id="scan-result" class="scan-result" aria-live="polite"></div>
+            </div>
+            <div class="today-card card"><div class="card-heading compact"><div><span class="section-kicker">RINGKASAN SAYA</span><h2>Presensi hari ini</h2></div><button class="ghost-button" data-view="dashboard">Dashboard wali kelas <span>→</span></button></div><div class="today-number"><strong id="today-present">—</strong><span id="today-summary-label">Belum presensi hari ini</span></div><div class="progress-track"><span id="today-progress"></span></div><div class="mini-stat-grid"><div><span class="stat-dot green"></span><b id="today-in">—</b><small>Jam datang</small></div><div><span class="stat-dot amber"></span><b id="today-out">—</b><small>Jam pulang</small></div><div><span class="stat-dot gray"></span><b id="today-absent">—</b><small>Cabang</small></div></div><div class="recent-heading"><span>STATUS HARI INI</span><span id="recent-count">Belum mulai</span></div><div id="recent-list" class="recent-list"></div></div>
+          </div>
+          <div class="info-banner"><span class="info-icon">i</span><div><b>Alur presensi otomatis</b><p>Scan pertama mencatat <strong>Jam Datang</strong>, scan kedua mencatat <strong>Jam Pulang</strong>. Scan berikutnya tidak membuat data baru.</p></div><span class="banner-arrow">→</span></div>
+        </section>
+
+        <section id="dashboard-view" class="view">
+          <div class="page-intro dashboard-intro"><div><p class="eyebrow">REKAP PRESENSI</p><h1>Dashboard wali kelas</h1><p class="subcopy">Pantau kehadiran dan kirim informasi kepada orang tua.</p></div><div class="dashboard-actions"><button class="outline-button" id="refresh-button">↻ Segarkan</button><button class="primary-button" id="export-button">↓ Ekspor rekap</button></div></div>
+          <div class="stats-grid"><div class="stat-card"><div class="stat-card-top"><span class="stat-label">TOTAL SISWA</span><span class="stat-card-icon blue">♧</span></div><strong id="stat-total">0</strong><small>Terdaftar dari database siswa</small></div><div class="stat-card"><div class="stat-card-top"><span class="stat-label">SUDAH HADIR</span><span class="stat-card-icon green">✓</span></div><strong id="stat-present">0</strong><small class="positive">↑ <span id="present-percent">0%</span> dari total siswa</small></div><div class="stat-card"><div class="stat-card-top"><span class="stat-label">BELUM HADIR</span><span class="stat-card-icon orange">◷</span></div><strong id="stat-absent">0</strong><small>Menunggu presensi masuk</small></div><div class="stat-card"><div class="stat-card-top"><span class="stat-label">SUDAH PULANG</span><span class="stat-card-icon purple">⌂</span></div><strong id="stat-out">0</strong><small><span id="stat-not-out">0</span> belum pulang</small></div></div>
+          <div class="table-card card"><div class="table-toolbar"><div><span class="section-kicker">DAFTAR PRESENSI</span><h2>Presensi hari ini <span class="table-date">· 15 Sep 2026</span></h2></div><div class="table-tools"><div class="search-box"><span>⌕</span><input id="search-input" placeholder="Cari nama siswa..." /></div><button class="filter-button" id="filter-toggle">⚙ Filter <span class="filter-count" id="filter-count">0</span></button></div></div><div class="filter-row" id="filter-row"><select id="class-filter"><option value="all">Semua kelas</option></select><select id="attendance-filter"><option value="all">Semua kehadiran</option><option value="present">Hadir</option><option value="absent">Belum hadir</option><option value="out">Sudah pulang</option><option value="not-out">Belum pulang</option></select><select id="wa-filter"><option value="all">Semua status WA</option><option value="unprocessed">Belum diproses</option><option value="processed">Sudah diproses</option><option value="delivered">Sudah terkirim</option></select><button class="reset-filter" id="reset-filter">Reset</button></div><div class="table-wrap"><table><thead><tr><th>SISWA</th><th>KELAS</th><th>CABANG</th><th>JAM DATANG</th><th>JAM PULANG</th><th>STATUS KEHADIRAN</th><th>STATUS WA</th><th></th></tr></thead><tbody id="attendance-body"></tbody></table><div id="empty-state" class="empty-state" hidden><div>⌁</div><b>Data tidak ditemukan</b><span>Coba ubah kata kunci atau filter Anda.</span></div></div><div class="table-footer"><span>Menampilkan <b id="table-showing">0</b> dari <b id="table-total">0</b> siswa</span><div class="pagination"><button disabled>←</button><button class="current">1</button><button disabled>→</button></div></div></div>
+          <p class="privacy-note">Data nomor WhatsApp hanya digunakan untuk mengirim informasi presensi dan tidak ditampilkan di layar.</p>
+        </section>
+
+        <section id="admin-view" class="view">
+          <div class="page-intro dashboard-intro"><div><p class="eyebrow">ADMINISTRASI SISTEM</p><h1>Manajemen Device</h1><p class="subcopy">Kelola satu perangkat terdaftar untuk setiap akun siswa. Reset device tidak menghapus akun maupun presensi.</p></div><div class="dashboard-actions"><button class="outline-button" id="refresh-device-button">↻ Segarkan</button></div></div>
+          <div class="device-notice"><span class="info-icon">i</span><div><b>Device binding aktif</b><p>Validasi perangkat harus dilakukan server. Token perangkat adalah identifier aplikasi yang aman, bukan nomor hardware HP.</p></div></div>
+          <div class="table-card card"><div class="table-toolbar"><div><span class="section-kicker">DEVICE BINDING</span><h2>Daftar perangkat siswa</h2></div><div class="table-tools"><div class="search-box"><span>⌕</span><input id="device-search" placeholder="Cari nama atau ID siswa..." /></div><select class="device-filter" id="device-status-filter"><option value="all">Semua status</option><option value="TERDAFTAR">Aktif</option><option value="BELUM_TERDAFTAR">Belum Terdaftar</option><option value="DI-RESET">Di-Reset</option></select></div></div><div class="table-wrap"><table><thead><tr><th>SISWA</th><th>ID SISWA</th><th>STATUS DEVICE</th><th>TERDAFTAR SEJAK</th><th>AKSI</th></tr></thead><tbody id="device-body"></tbody></table><div id="device-empty" class="empty-state" hidden><div>⚙</div><b>Data device tidak ditemukan</b><span>Coba ubah pencarian atau filter.</span></div></div><div class="table-footer"><span>Menampilkan <b id="device-showing">0</b> dari <b id="device-total">0</b> siswa</span><span class="privacy-note">Binding dan audit reset disimpan di backend.</span></div></div>
+        </section>
+      </main>
+    </div>
+    <div id="toast-region" class="toast-region" aria-live="polite"></div>
+    <div class="modal-backdrop" id="bind-modal" hidden><div class="confirm-modal"><div class="modal-icon">⌁</div><h3>Daftarkan perangkat ini?</h3><p id="bind-modal-copy">Perangkat ini belum terdaftar untuk akun Anda. Satu akun siswa hanya dapat menggunakan satu perangkat.</p><div class="modal-actions"><button class="outline-button" id="bind-cancel">Batal</button><button class="primary-button" id="bind-confirm">Daftarkan perangkat</button></div></div></div>
+    <div class="modal-backdrop" id="confirm-modal" hidden><div class="confirm-modal"><div class="modal-icon">✓</div><h3>Ubah status pengiriman?</h3><p>Status akan diubah menjadi <strong>Sudah Terkirim</strong>. Pastikan pesan sudah dikirim melalui WhatsApp.</p><div class="modal-actions"><button class="outline-button" id="modal-cancel">Batal</button><button class="primary-button" id="modal-confirm">Ya, ubah status</button></div></div></div>
+    <div class="modal-backdrop" id="reset-device-modal" hidden><div class="confirm-modal"><div class="modal-icon danger">↺</div><h3>Reset perangkat siswa ini?</h3><p id="reset-device-copy">Setelah di-reset, siswa tidak dapat menggunakan perangkat lama sampai melakukan registrasi pada perangkat baru.</p><div class="modal-actions"><button class="outline-button" id="reset-device-cancel">Batal</button><button class="primary-button danger-button" id="reset-device-confirm">Reset Device</button></div></div></div>
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

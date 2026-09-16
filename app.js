@@ -1,12 +1,14 @@
-import './styles.css';
-
 /*
  * The UI talks to a backend through VITE_ATTENDANCE_API_URL when one is configured.
  * The browser never receives Google credentials. Until that backend is configured,
  * this local fallback keeps the prototype usable and stores only attendance events
  * in localStorage. Replace FALLBACK_STUDENTS with the response from the sheet API.
  */
-const API_BASE = import.meta.env.VITE_ATTENDANCE_API_URL || '';
+// The root entry is also served directly by GitHub Pages in some repository
+// configurations, so avoid a Vite-only import.meta.env access here. A
+// production backend can still be supplied before this module loads with
+// window.__ATTENDANCE_API_URL__.
+const API_BASE = globalThis.__ATTENDANCE_API_URL__ || '';
 const STORAGE_KEY = 'ruang-kelas-attendance-v1';
 const WA_KEY = 'ruang-kelas-wa-v1';
 const SESSION_KEY = 'ruang-kelas-student-session-v1';

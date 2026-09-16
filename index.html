@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="theme-color" content="#102c2b" />
     <title>Presensi Siswa · Ruang Kelas</title>
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
     <div id="app" class="app-shell">
@@ -77,6 +78,6 @@
     <div class="modal-backdrop" id="bind-modal" hidden><div class="confirm-modal"><div class="modal-icon">⌁</div><h3>Daftarkan perangkat ini?</h3><p id="bind-modal-copy">Perangkat ini belum terdaftar untuk akun Anda. Satu akun siswa hanya dapat menggunakan satu perangkat.</p><div class="modal-actions"><button class="outline-button" id="bind-cancel">Batal</button><button class="primary-button" id="bind-confirm">Daftarkan perangkat</button></div></div></div>
     <div class="modal-backdrop" id="confirm-modal" hidden><div class="confirm-modal"><div class="modal-icon">✓</div><h3>Ubah status pengiriman?</h3><p>Status akan diubah menjadi <strong>Sudah Terkirim</strong>. Pastikan pesan sudah dikirim melalui WhatsApp.</p><div class="modal-actions"><button class="outline-button" id="modal-cancel">Batal</button><button class="primary-button" id="modal-confirm">Ya, ubah status</button></div></div></div>
     <div class="modal-backdrop" id="reset-device-modal" hidden><div class="confirm-modal"><div class="modal-icon danger">↺</div><h3>Reset perangkat siswa ini?</h3><p id="reset-device-copy">Setelah di-reset, siswa tidak dapat menggunakan perangkat lama sampai melakukan registrasi pada perangkat baru.</p><div class="modal-actions"><button class="outline-button" id="reset-device-cancel">Batal</button><button class="primary-button danger-button" id="reset-device-confirm">Reset Device</button></div></div></div>
-    <script type="module" src="/app.js"></script>
+    <script type="module" src="./app.js"></script>
   </body>
 </html>

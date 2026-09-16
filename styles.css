@@ -6,3 +6,45 @@
 @media(max-width:980px){.sidebar{width:215px}.view{padding:32px 28px}.scan-layout{grid-template-columns:1fr}.today-card{min-height:0}.stats-grid{grid-template-columns:repeat(2,1fr)}.login-layout{gap:32px}}
 @media(max-width:680px){.sidebar{width:62px;padding:20px 9px}.brand{padding:0 7px 39px}.brand>div:last-child,.sidebar-label,.nav-item span:last-child,.school-card,.profile-row>div:not(.avatar),.profile-row .more{display:none}.brand-mark{transform:scale(.85)}.nav-item{justify-content:center;padding:12px 8px}.nav-icon{font-size:23px}.profile-row{justify-content:center;padding:8px 0}.topbar{padding:0 18px;height:60px}.breadcrumbs span,.breadcrumbs i{display:none}.topbar-actions{gap:11px}.live-dot{font-size:10px}.view{padding:25px 15px 30px}.page-intro{margin-bottom:24px}.page-intro h1{font-size:23px}.date-chip{display:none}.scan-card,.today-card,.table-card{padding:19px 16px}.scanner-stage{height:260px}.info-banner{align-items:flex-start}.banner-arrow{display:none}.stats-grid{gap:8px}.stat-card{padding:13px}.stat-card>strong{font-size:25px}.dashboard-intro{display:block}.dashboard-actions{margin-top:17px}.table-toolbar{display:block}.table-tools{margin-top:15px}.search-box{flex:1;width:auto}.table-tools .filter-button{white-space:nowrap}.filter-row{flex-wrap:wrap}.filter-row select{flex:1;min-width:125px}.reset-filter{margin-left:0}.manual-form .input-row{display:grid;grid-template-columns:1fr}.primary-button{width:100%}.scan-card .primary-button{width:auto}.login-layout{display:block;min-height:auto;padding-top:14px}.login-copy{padding:0 3px 25px}.login-copy h1{font-size:28px}.login-points{margin-top:22px;gap:10px}.login-card{padding:21px 17px}.toast-region{right:12px;bottom:12px;left:12px}.toast{text-align:center}}
 .staff-password{width:100%;height:39px;border:1px solid #d6e4e0;border-radius:7px;padding:0 10px;background:#fff;color:#34534f;outline:0;font-size:11px}.staff-password:focus{border-color:#64b59b;box-shadow:0 0 0 3px #e7f6f0}
+
+/* Mobile layout: use a compact bottom navigation instead of a narrow desktop rail. */
+html,body{max-width:100%;overflow-x:hidden}
+@media(max-width:680px){
+  .app-shell{display:block;min-height:100vh}
+  .sidebar{position:fixed;z-index:30;left:0;right:0;bottom:0;width:100%;height:68px;padding:7px 8px;background:#102c2b;border-top:1px solid #214746;display:block}
+  .brand,.sidebar-label,.sidebar-bottom{display:none}
+  .main-nav{height:100%;display:flex;align-items:stretch;justify-content:space-around;gap:4px}
+  .nav-item{flex:1;min-width:0;display:flex;flex-direction:column;justify-content:center;align-items:center;gap:3px;padding:5px 2px;text-align:center;font-size:9px;line-height:1.1}
+  .nav-item span:last-child{display:block;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .nav-icon{width:auto;font-size:18px;line-height:1}
+  .main-content{padding-bottom:68px}
+  .topbar{position:sticky;top:0;z-index:20;padding:0 15px;background:rgba(255,255,255,.96);backdrop-filter:blur(8px)}
+  .topbar-actions{gap:10px}
+  .live-dot{font-size:9px}
+  .view{padding-left:13px;padding-right:13px}
+  .page-intro{gap:14px}
+  .dashboard-actions{width:100%}
+  .dashboard-actions button{flex:1}
+  .table-tools{width:100%}
+}
+@media(max-width:420px){
+  .view{padding:20px 11px 27px}
+  .page-intro h1{font-size:21px;letter-spacing:-.8px}
+  .subcopy{font-size:12px;line-height:1.45}
+  .login-copy h1{font-size:27px}
+  .login-card{padding:19px 14px}
+  .scan-card,.today-card,.table-card{padding:16px 13px}
+  .card-heading h2,.table-toolbar h2{font-size:16px}
+  .status-pill{font-size:9px;padding:6px 8px}
+  .scanner-stage{height:245px}
+  .student-identity{gap:7px;padding:8px}
+  .student-identity small{max-width:170px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .text-button{font-size:9px}
+  .info-banner{padding:12px 13px}
+  .info-banner p{line-height:1.45}
+  .stats-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .stat-card{padding:11px}
+  .stat-card small{font-size:9px;line-height:1.3}
+  .table-toolbar h2{line-height:1.3}
+  .filter-row select{min-width:110px}
+}

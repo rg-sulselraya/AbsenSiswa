@@ -11,6 +11,8 @@ npm run dev
 
 Build produksi: `npm run build`.
 
+Backend reference dapat dijalankan di layanan Node seperti Render menggunakan `render.yaml`. Set secret `PRESENSI_STAFF_PASSWORD`, `PRESENSI_ADMIN_PASSWORD`, dan opsional `PRESENSI_ADMIN_TOKEN` pada layanan tersebut. Setelah URL backend tersedia, build frontend dengan `VITE_ATTENDANCE_API_URL=https://URL-BACKEND/api` lalu deploy ulang Pages.
+
 ## Integrasi Google Sheets
 
 Buat backend (atau serverless functions) yang membaca spreadsheet `17xq9XNJchMRE57MMNSYok_jr9uXjZAGKXpzoI1kYroE` menggunakan service account dari environment variable. Credential tidak boleh masuk ke `app.js` atau bundle frontend.

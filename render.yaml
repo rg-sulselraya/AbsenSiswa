@@ -1,0 +1,14 @@
+services:
+  - type: web
+    name: absen-siswa-api
+    runtime: node
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: PRESENSI_STAFF_PASSWORD
+        sync: false
+      - key: PRESENSI_ADMIN_PASSWORD
+        sync: false
+      - key: PRESENSI_ADMIN_TOKEN
+        sync: false

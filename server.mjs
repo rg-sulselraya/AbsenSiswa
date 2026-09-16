@@ -3,7 +3,8 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import crypto from 'node:crypto';
 
-const PORT = Number(process.env.PRESENSI_API_PORT || 8787);
+const PORT = Number(process.env.PORT || process.env.PRESENSI_API_PORT || 8787);
+const HOST = process.env.PRESENSI_API_HOST || '0.0.0.0';
 const DATA_DIR = new URL('./.data/', import.meta.url);
 const BINDINGS_FILE = new URL('./.data/device-bindings.json', import.meta.url);
 const RESET_LOG_FILE = new URL('./.data/device-reset-log.json', import.meta.url);
@@ -82,4 +83,4 @@ const server = http.createServer(async (request, response) => {
   } catch (error) { return send(response, 500, { message: 'Kesalahan server.', detail: error.message }); }
 });
 
-server.listen(PORT, '127.0.0.1', () => console.log(`Device binding API listening on http://127.0.0.1:${PORT}`));
+server.listen(PORT, HOST, () => console.log(`Device binding API listening on ${HOST}:${PORT}`));

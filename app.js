@@ -63,6 +63,7 @@ function getDeviceToken() { let token = localStorage.getItem(DEVICE_KEY); if (!t
 function hasDeviceToken() { return Boolean(localStorage.getItem(DEVICE_KEY)); }
 function bindingFor(studentId) { return deviceBindings[studentId] || null; }
 function staffHeaders() { return staffSession?.token ? { 'X-Staff-Session': staffSession.token } : {}; }
+function staffUrl(path) { const token = staffSession?.token; return token ? `${API_BASE}/${path}?token=${encodeURIComponent(token)}` : `${API_BASE}/${path}`; }
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
@@ -106,6 +107,7 @@ async function serverDeviceCheck(student, token) {
   try {
     const response = await fetch(`${API_BASE}/device-binding/check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) });
     const data = await response.json();
+    if (data.message && !data.status) return { status: 'error', message: data.message };
     if (!response.ok) return { status: 'error', message: data.message || 'Perangkat tidak dapat divalidasi.' };
     return data;
   } catch { return { status: 'error', message: 'Server device binding tidak tersedia.' }; }
@@ -116,7 +118,7 @@ async function loginStaff(role, password) {
   try {
     const response = await fetch(`${API_BASE}/staff/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, password }) });
     const data = await response.json();
-    if (!response.ok) return showToast(data.message || 'Login staf ditolak.', 'warn');
+    if (!response.ok || data.message || !data.token) return showToast(data.message || 'Login staf ditolak.', 'warn');
     staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Wali Kelas'} berhasil.`);
   } catch { showToast('Server autentikasi staf tidak tersedia.', 'warn'); }
 }
@@ -130,7 +132,7 @@ async function bindDevice(student) {
     try {
       const response = await fetch(`${API_BASE}/device-binding/bind`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...staffHeaders() }, body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
       const data = await response.json();
-      if (!response.ok) return showToast(data.message || 'Registrasi perangkat ditolak oleh server.', 'warn');
+      if (!response.ok || data.message) return showToast(data.message || 'Registrasi perangkat ditolak oleh server.', 'warn');
     } catch { return showToast('Registrasi perangkat gagal karena server tidak tersedia.', 'warn'); }
   }
   deviceBindings[student.id] = { studentId: student.id, studentName: student.name, deviceToken: token, status: 'TERDAFTAR', boundAt, updatedAt: boundAt };
@@ -247,7 +249,7 @@ async function confirmResetDevice() {
   const student = students.find((item) => item.id === pendingResetStudentId); const binding = student && bindingFor(student.id); if (!student || !binding) return;
   const resetAt = new Date().toISOString();
   if (API_BASE) {
-    try { const response = await fetch(`${API_BASE}/device-binding/reset`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...staffHeaders() }, body: JSON.stringify({ studentId: student.id, admin: 'Admin', reason: 'Reset Device' }) }); const data = await response.json(); if (!response.ok) return showToast(data.message || 'Reset Device ditolak oleh server.', 'warn'); } catch { return showToast('Reset Device gagal karena server tidak tersedia.', 'warn'); }
+    try { const response = await fetch(staffUrl('device-binding/reset'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...staffHeaders() }, body: JSON.stringify({ studentId: student.id, admin: 'Admin', reason: 'Reset Device' }) }); const data = await response.json(); if (!response.ok || data.message || data.status !== 'DI-RESET') return showToast(data.message || 'Reset Device ditolak oleh server.', 'warn'); } catch { return showToast('Reset Device gagal karena server tidak tersedia.', 'warn'); }
   }
   deviceResetLog.push({ id: `RESET-${Date.now()}`, studentId: student.id, studentName: student.name, deviceToken: binding.deviceToken, resetAt, admin: 'Admin', reason: 'Reset Device', status: 'DI-RESET' });
   deviceBindings[student.id] = { ...binding, deviceToken: null, status: 'DI-RESET', resetAt, updatedAt: resetAt }; if (studentSession?.id === student.id) { studentSession = null; authRole = null; } persist(); $('#reset-device-modal').hidden = true; pendingResetStudentId = null; if (!studentSession) setView('login'); else renderDeviceManagement(); showToast(`Device ${student.name} berhasil di-reset.`);

@@ -62,8 +62,9 @@ function persistStaffSession() { if (staffSession) localStorage.setItem(STAFF_SE
 function getDeviceToken() { let token = localStorage.getItem(DEVICE_KEY); if (!token) { token = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_KEY, token); } return token; }
 function hasDeviceToken() { return Boolean(localStorage.getItem(DEVICE_KEY)); }
 function bindingFor(studentId) { return deviceBindings[studentId] || null; }
-function staffHeaders() { return staffSession?.token ? { 'X-Staff-Session': staffSession.token } : {}; }
+function staffHeaders() { return staffSession?.token && !API_BASE.includes('script.google.com') ? { 'X-Staff-Session': staffSession.token } : {}; }
 function staffUrl(path) { const token = staffSession?.token; return token ? `${API_BASE}/${path}?token=${encodeURIComponent(token)}` : `${API_BASE}/${path}`; }
+function requestHeaders(extra = {}) { return { 'Content-Type': API_BASE.includes('script.google.com') ? 'text/plain;charset=utf-8' : 'application/json', ...extra }; }
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
@@ -105,7 +106,7 @@ async function loadDeviceBindings() {
 async function serverDeviceCheck(student, token) {
   if (!API_BASE) return { status: 'local' };
   try {
-    const response = await fetch(`${API_BASE}/device-binding/check`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) });
+    const response = await fetch(`${API_BASE}/device-binding/check`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) });
     const data = await response.json();
     if (data.message && !data.status) return { status: 'error', message: data.message };
     if (!response.ok) return { status: 'error', message: data.message || 'Perangkat tidak dapat divalidasi.' };
@@ -116,7 +117,7 @@ async function serverDeviceCheck(student, token) {
 async function loginStaff(role, password) {
   if (!API_BASE) return showToast('Backend autentikasi staf belum tersedia.', 'warn');
   try {
-    const response = await fetch(`${API_BASE}/staff/login`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ role, password }) });
+    const response = await fetch(`${API_BASE}/staff/login`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ role, password }) });
     const data = await response.json();
     if (!response.ok || data.message || !data.token) return showToast(data.message || 'Login staf ditolak.', 'warn');
     staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Wali Kelas'} berhasil.`);
@@ -130,7 +131,7 @@ async function bindDevice(student) {
   const boundAt = new Date().toISOString();
   if (API_BASE) {
     try {
-      const response = await fetch(`${API_BASE}/device-binding/bind`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...staffHeaders() }, body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
+      const response = await fetch(`${API_BASE}/device-binding/bind`, { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
       const data = await response.json();
       if (!response.ok || data.message) return showToast(data.message || 'Registrasi perangkat ditolak oleh server.', 'warn');
     } catch { return showToast('Registrasi perangkat gagal karena server tidak tersedia.', 'warn'); }
@@ -149,7 +150,7 @@ function saveAttendance(student, type) {
   if (type === 'out') { current.checkOut = time; current.status = 'Hadir'; }
   records[key] = current;
   persist();
-  if (API_BASE) fetch(`${API_BASE}/attendance`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...current, deviceToken: getDeviceToken() }) }).catch(() => {});
+  if (API_BASE) fetch(`${API_BASE}/attendance`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...current, deviceToken: getDeviceToken() }) }).catch(() => {});
   return current;
 }
 
@@ -249,7 +250,7 @@ async function confirmResetDevice() {
   const student = students.find((item) => item.id === pendingResetStudentId); const binding = student && bindingFor(student.id); if (!student || !binding) return;
   const resetAt = new Date().toISOString();
   if (API_BASE) {
-    try { const response = await fetch(staffUrl('device-binding/reset'), { method: 'POST', headers: { 'Content-Type': 'application/json', ...staffHeaders() }, body: JSON.stringify({ studentId: student.id, admin: 'Admin', reason: 'Reset Device' }) }); const data = await response.json(); if (!response.ok || data.message || data.status !== 'DI-RESET') return showToast(data.message || 'Reset Device ditolak oleh server.', 'warn'); } catch { return showToast('Reset Device gagal karena server tidak tersedia.', 'warn'); }
+    try { const response = await fetch(staffUrl('device-binding/reset'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, admin: 'Admin', reason: 'Reset Device' }) }); const data = await response.json(); if (!response.ok || data.message || data.status !== 'DI-RESET') return showToast(data.message || 'Reset Device ditolak oleh server.', 'warn'); } catch { return showToast('Reset Device gagal karena server tidak tersedia.', 'warn'); }
   }
   deviceResetLog.push({ id: `RESET-${Date.now()}`, studentId: student.id, studentName: student.name, deviceToken: binding.deviceToken, resetAt, admin: 'Admin', reason: 'Reset Device', status: 'DI-RESET' });
   deviceBindings[student.id] = { ...binding, deviceToken: null, status: 'DI-RESET', resetAt, updatedAt: resetAt }; if (studentSession?.id === student.id) { studentSession = null; authRole = null; } persist(); $('#reset-device-modal').hidden = true; pendingResetStudentId = null; if (!studentSession) setView('login'); else renderDeviceManagement(); showToast(`Device ${student.name} berhasil di-reset.`);
@@ -324,13 +325,13 @@ function sendWA(studentId) {
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
   waStatuses[key] = { status: 'processed', processedAt: new Date().toISOString(), studentId: student.id }; persist();
-  if (API_BASE) fetch(`${API_BASE}/wa-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: dateKey(), studentId: student.id, status: 'processed', processedAt: waStatuses[key].processedAt }) }).catch(() => {});
+  if (API_BASE) fetch(`${API_BASE}/wa-status`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: student.id, status: 'processed', processedAt: waStatuses[key].processedAt }) }).catch(() => {});
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   showToast(`WhatsApp untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard();
 }
 
 function openConfirm(studentId) { pendingDeliveredId = studentId; $('#confirm-modal').hidden = false; }
-function confirmDelivered() { if (!pendingDeliveredId) return; const key = `${dateKey()}::${pendingDeliveredId}`; waStatuses[key] = { ...(waStatuses[key] || {}), status: 'delivered', deliveredAt: new Date().toISOString(), studentId: pendingDeliveredId }; persist(); if (API_BASE) fetch(`${API_BASE}/wa-status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, status: 'delivered', deliveredAt: waStatuses[key].deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; renderDashboard(); showToast('Status diubah menjadi Sudah Terkirim.'); }
+function confirmDelivered() { if (!pendingDeliveredId) return; const key = `${dateKey()}::${pendingDeliveredId}`; waStatuses[key] = { ...(waStatuses[key] || {}), status: 'delivered', deliveredAt: new Date().toISOString(), studentId: pendingDeliveredId }; persist(); if (API_BASE) fetch(`${API_BASE}/wa-status`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, status: 'delivered', deliveredAt: waStatuses[key].deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; renderDashboard(); showToast('Status diubah menjadi Sudah Terkirim.'); }
 
 async function activateCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return showToast('Kamera tidak tersedia di browser ini. Gunakan input ID manual.', 'warn');

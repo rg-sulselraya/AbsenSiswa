@@ -4,7 +4,7 @@ Folder ini berisi backend yang membaca dan menulis Google Sheets tanpa menyimpan
 
 ## Setup singkat
 
-1. Buka [script.google.com](https://script.google.com) dan buat project baru.
+1. Buka Google Sheet data siswa, lalu pilih **Extensions → Apps Script** (cara ini mengikat script ke spreadsheet yang benar).
 2. Salin isi `Code.gs` ke editor Apps Script.
 3. Jalankan fungsi `setupProperties()` sekali. Izinkan akses Sheets jika diminta.
 4. Buka **Project Settings → Script properties**, lalu ganti:

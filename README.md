@@ -11,9 +11,7 @@ npm run dev
 
 Build produksi: `npm run build`.
 
-Backend reference dapat dijalankan di layanan Node seperti Render menggunakan `render.yaml`. Set secret `PRESENSI_STAFF_PASSWORD`, `PRESENSI_ADMIN_PASSWORD`, dan opsional `PRESENSI_ADMIN_TOKEN` pada layanan tersebut. Setelah URL backend tersedia, build frontend dengan `VITE_ATTENDANCE_API_URL=https://URL-BACKEND/api` lalu deploy ulang Pages.
-
-Untuk GitHub Pages, simpan URL tersebut sebagai repository variable bernama `VITE_ATTENDANCE_API_URL` (Settings → Secrets and variables → Actions → Variables). Workflow Pages akan menggunakannya saat build berikutnya.
+Backend yang direkomendasikan adalah Google Apps Script. Panduan lengkap dan kode siap pakai tersedia di [`apps-script/README.md`](apps-script/README.md). Setelah URL Web App tersedia, simpan sebagai repository variable `VITE_ATTENDANCE_API_URL` (Settings → Secrets and variables → Actions → Variables). Workflow Pages akan menggunakannya saat build berikutnya. `render.yaml` tetap tersedia sebagai alternatif hosting Node.
 
 ## Integrasi Google Sheets
 

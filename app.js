@@ -23,15 +23,15 @@ let branches = BRANCHES;
 // Read-only preview of the supplied sheet (headers: User Serial, Nama Siswa,
 // No Ortu, Nama Sekolah, Grade, Kelas). Production should load all rows via API.
 const FALLBACK_STUDENTS = [
-  { id: 'DEMO-001', name: 'Siswa Demo Satu', className: 'Kelas 7A', branch: 'Hertasning', branchId: 'CABANG-001', grade: '7 SMP', parentPhone: '' },
-  { id: 'DEMO-002', name: 'Siswa Demo Dua', className: 'Kelas 7A', branch: 'Panakkukang', branchId: 'CABANG-002', grade: '7 SMP', parentPhone: '' },
-  { id: 'DEMO-003', name: 'Siswa Demo Tiga', className: 'Kelas 7B', branch: 'Hertasning', branchId: 'CABANG-001', grade: '7 SMP', parentPhone: '' },
-  { id: 'DEMO-004', name: 'Siswa Demo Empat', className: 'Kelas 7B', branch: 'Panakkukang', branchId: 'CABANG-002', grade: '7 SMP', parentPhone: '' },
-  { id: 'DEMO-005', name: 'Siswa Demo Lima', className: 'Kelas 8A', branch: 'Tamalanrea', branchId: 'CABANG-003', grade: '8 SMP', parentPhone: '' },
-  { id: 'DEMO-006', name: 'Siswa Demo Enam', className: 'Kelas 8A', branch: 'Hertasning', branchId: 'CABANG-001', grade: '8 SMP', parentPhone: '' },
-  { id: 'DEMO-007', name: 'Siswa Demo Tujuh', className: 'Kelas 8B', branch: 'Panakkukang', branchId: 'CABANG-002', grade: '8 SMP', parentPhone: '' },
-  { id: 'DEMO-008', name: 'Siswa Demo Delapan', className: 'Kelas 8B', branch: 'Tamalanrea', branchId: 'CABANG-003', grade: '8 SMP', parentPhone: '' },
-];
+  { id: 'USERM5C6YF66', name: 'Muhammad Roofi Ismail Adhami', className: '12 KURMER R4.02', branch: 'Hertasning', branchId: 'CABANG-001', grade: '12 SMA', parentPhone: '' },
+  { id: 'PRINCESSWTIOB03O', name: 'Princess Velvina Rahiel', className: '9 SMP R3.01', branch: 'Panakkukang', branchId: 'CABANG-002', grade: '9 SMP', parentPhone: '' },
+  { id: 'SAFIRAAJ546XXOCK', name: 'Andi Safira Putri Maryam', className: '11 SMA R4.01', branch: 'Hertasning', branchId: 'CABANG-001', grade: '11 SMA', parentPhone: '' },
+  { id: 'USERKL9G6CNG', name: 'Maylafayza Difa Anggraeny', className: 'SIAP SNBT R4.01', branch: 'Panakkukang', branchId: 'CABANG-002', grade: '12 SMA', parentPhone: '' },
+  { id: 'KHALISTAEJ64P6SB', name: 'Khalista Amaliani Reikha Putri', className: '8 SMP R3.01', branch: 'Tamalanrea', branchId: 'CABANG-003', grade: '8 SMP', parentPhone: '' },
+  { id: 'SYRENZX2MUDTULJT', name: 'Syren Fadhila Iftihar', className: 'SIAP SNBT R4.01', branch: 'Hertasning', branchId: 'CABANG-001', grade: '12 SMA', parentPhone: '628114189189' },
+  { id: 'FIRLYNPKFZIS3AF7', name: 'Firly adinata castany', className: '11 SMA R4.03', branch: 'Panakkukang', branchId: 'CABANG-002', grade: '11 SMA', parentPhone: '' },
+  { id: 'NAFISAHRORJ8JEXA', name: 'Nafisah Daneen Mawali', className: '9 SMP R3.01', branch: 'Tamalanrea', branchId: 'CABANG-003', grade: '9 SMP', parentPhone: '' },
+]; 
 
 let students = FALLBACK_STUDENTS;
 let records = loadJson(STORAGE_KEY, {});

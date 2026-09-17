@@ -53,9 +53,10 @@ function handle_(e, method) {
       if (route === 'attendance') return attendance_(payload);
       if (route === 'wa-status') return waStatus_(payload);
     }
-    return json_({ message: 'Endpoint tidak ditemukan.' }, e, 404);
+    return json_({ success: false, code: 'ENDPOINT_NOT_FOUND', message: 'Endpoint tidak ditemukan.' }, e, 404);
   } catch (error) {
-    return json_({ message: 'Kesalahan server.', detail: String(error.message || error) }, e, 500);
+    console.error('[AUTH] Request failed: ' + String(error && error.message || error));
+    return json_({ success: false, code: 'SERVER_ERROR', message: 'Server autentifikasi mengalami masalah.' }, e, 500);
   }
 }
 
@@ -146,8 +147,20 @@ function bindingCheck_(payload) { const binding = binding_(payload.studentId); i
 function bindingBind_(payload) { if (!payload.studentId || !payload.deviceToken) return json_({ message: 'studentId dan deviceToken wajib diisi.' }, null, 400); if (tokenInUse_(payload.deviceToken, payload.studentId)) return json_({ message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409); const sheet = sheet_(SHEETS.bindings); const current = binding_(payload.studentId); if (current && current.Status === 'TERDAFTAR' && String(current['Device Token']) !== String(payload.deviceToken)) return json_({ message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409); const now = new Date(); const row = [payload.studentId, payload.studentName || current?.['Nama Siswa'] || '', payload.deviceToken, 'TERDAFTAR', current?.['Tanggal Bind'] || now, '', now]; if (current) writeRow_(sheet, bindingRows_().indexOf(current) + 2, row); else sheet.appendRow(row); return json_({ status: 'TERDAFTAR' }); }
 
 function session_(e) { const token = e && e.parameter && e.parameter.token || ''; return token ? CacheService.getScriptCache().get('staff:' + token) : ''; }
-function staffLogin_(payload) { const role = payload.role; const expected = role === 'admin' ? property_('PRESENSI_ADMIN_PASSWORD') : role === 'teacher' ? property_('PRESENSI_STAFF_PASSWORD') : ''; if (!expected) return json_({ message: 'Password staf belum dikonfigurasi di Script Properties.' }, null, 503); if (String(payload.password || '') !== expected) return json_({ message: 'Password staf tidak valid.' }, null, 401); const token = Utilities.getUuid(); CacheService.getScriptCache().put('staff:' + token, role, 21600); return json_({ role, token }); }
-function staffValidate_(e) { const role = session_(e); return role ? json_({ role }) : json_({ message: 'Sesi staf tidak valid.' }, null, 401); }
+function staffLogin_(payload) {
+  const role = String(payload.role || '');
+  if (role !== 'teacher' && role !== 'admin') return json_({ success: false, authenticated: false, code: 'AUTH_INVALID_ROLE', message: 'Role staf tidak valid.' }, null, 400);
+  const expected = role === 'admin' ? property_('PRESENSI_ADMIN_PASSWORD') : property_('PRESENSI_STAFF_PASSWORD');
+  if (!expected || expected === 'GANTI_PASSWORD_WALI' || expected === 'GANTI_PASSWORD_ADMIN') {
+    console.warn('[AUTH] Staff password is not configured for role: ' + role);
+    return json_({ success: false, authenticated: false, code: 'AUTH_CONFIG_MISSING', message: 'Konfigurasi autentifikasi staf belum lengkap.' }, null, 503);
+  }
+  if (String(payload.password || '') !== expected) return json_({ success: false, authenticated: false, code: 'AUTH_FAILED', message: 'Autentifikasi staf gagal.' }, null, 401);
+  const token = Utilities.getUuid();
+  CacheService.getScriptCache().put('staff:' + token, role, 21600);
+  return json_({ success: true, authenticated: true, staff: { role }, role, token });
+}
+function staffValidate_(e) { const role = session_(e); return role ? json_({ success: true, authenticated: true, staff: { role }, role }) : json_({ success: false, authenticated: false, code: 'AUTH_SESSION_INVALID', message: 'Sesi staf tidak valid.' }, null, 401); }
 function bindingReset_(e, payload) { const role = session_(e); if (role !== 'admin') return json_({ message: 'Hanya Admin yang dapat melakukan Reset Device.' }, null, 403); const current = binding_(payload.studentId); if (!current) return json_({ message: 'Binding siswa tidak ditemukan.' }, null, 404); const now = new Date(); const bindingSheet = sheet_(SHEETS.bindings); writeRow_(bindingSheet, bindingRows_().indexOf(current) + 2, [current['ID Siswa'], current['Nama Siswa'], '', 'DI-RESET', current['Tanggal Bind'], now, now]); sheet_(SHEETS.resetLog).appendRow(['RESET-' + Date.now(), current['ID Siswa'], current['Nama Siswa'], now, 'Admin', payload.reason || 'Reset Device', 'DI-RESET', current['Device Token']]); return json_({ status: 'DI-RESET' }); }
 
 function attendance_(payload) { const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet); const index = data.findIndex(row => String(row['Tanggal']) === String(payload.date) && String(row['ID Siswa']) === String(payload.studentId)); const values = [payload.date || dateKey_(), payload.studentId || '', payload.name || '', payload.className || '', payload.branchId || '', payload.branch || '', payload.checkIn || '', payload.checkOut || '', payload.status || 'Belum Pulang']; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true }); }

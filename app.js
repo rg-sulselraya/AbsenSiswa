@@ -66,6 +66,15 @@ function bindingFor(studentId) { return deviceBindings[studentId] || null; }
 function staffHeaders() { return staffSession?.token && !API_BASE.includes('script.google.com') ? { 'X-Staff-Session': staffSession.token } : {}; }
 function staffUrl(path) { const token = staffSession?.token; return token ? `${API_BASE}/${path}?token=${encodeURIComponent(token)}` : `${API_BASE}/${path}`; }
 function requestHeaders(extra = {}) { return { 'Content-Type': API_BASE.includes('script.google.com') ? 'text/plain;charset=utf-8' : 'application/json', ...extra }; }
+const AUTH_TIMEOUT_MS = 15000;
+function authErrorMessage(code, role = 'teacher') {
+  if (code === 'AUTH_CONFIG_MISSING' || code === 'ADMIN_TOKEN_NOT_CONFIGURED') return 'Konfigurasi autentifikasi staf belum lengkap.';
+  if (code === 'AUTH_FAILED') return role === 'teacher' ? 'Password Wali Kelas salah.' : 'Password Admin salah.';
+  if (code === 'STAFF_NOT_FOUND') return 'Akun Wali Kelas tidak ditemukan.';
+  if (code === 'AUTH_TIMEOUT') return 'Server autentifikasi terlalu lama merespons.';
+  if (code === 'AUTH_INVALID_RESPONSE') return 'Response server autentifikasi tidak valid.';
+  return 'Server autentifikasi staf tidak tersedia. Silakan coba lagi.';
+}
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
@@ -117,12 +126,25 @@ async function serverDeviceCheck(student, token) {
 
 async function loginStaff(role, password) {
   if (!API_BASE) return showToast('Backend autentikasi staf belum tersedia.', 'warn');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
   try {
-    const response = await fetch(`${API_BASE}/staff/login`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ role, password }) });
-    const data = await response.json();
-    if (!response.ok || data.message || !data.token) return showToast(data.message || 'Login staf ditolak.', 'warn');
+    const endpoint = `${API_BASE}/staff/login`;
+    const response = await fetch(endpoint, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ role, password }), signal: controller.signal });
+    let data;
+    try { data = await response.json(); } catch { console.warn('[AUTH] Invalid JSON response', { endpoint, status: response.status }); return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn'); }
+    console.info('[AUTH] Response received', { endpoint, status: response.status, code: data?.code || null });
+    if (!response.ok || data?.success === false || data?.message && !data?.token) {
+      const code = data?.code || (response.status === 401 ? 'AUTH_FAILED' : response.status === 503 ? 'AUTH_CONFIG_MISSING' : '');
+      return showToast(code ? authErrorMessage(code, role) : (data?.message || 'Autentifikasi staf gagal.'), 'warn');
+    }
+    if (!data?.token || !data?.role) return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn');
     staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Wali Kelas'} berhasil.`);
-  } catch { showToast('Server autentikasi staf tidak tersedia.', 'warn'); }
+  } catch (error) {
+    const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
+    console.warn('[AUTH] Request failed', { endpoint: `${API_BASE}/staff/login`, code });
+    showToast(authErrorMessage(code, role), 'warn');
+  } finally { clearTimeout(timeout); }
 }
 
 async function bindDevice(student) {

@@ -34,10 +34,11 @@ const server = http.createServer(async (request, response) => {
       const { role, password } = await body(request);
       const validRole = role === 'teacher' || role === 'admin';
       const expected = role === 'admin' ? ADMIN_PASSWORD : STAFF_PASSWORD;
-      if (!validRole || !expected) return send(response, 503, { message: 'Autentikasi staf belum dikonfigurasi di server.' });
-      if (password !== expected) return send(response, 401, { message: 'Password staf tidak valid.' });
+      if (!validRole) return send(response, 400, { success: false, authenticated: false, code: 'AUTH_INVALID_ROLE', message: 'Role staf tidak valid.' });
+      if (!expected) return send(response, 503, { success: false, authenticated: false, code: 'AUTH_CONFIG_MISSING', message: 'Konfigurasi autentifikasi staf belum lengkap.' });
+      if (password !== expected) return send(response, 401, { success: false, authenticated: false, code: 'AUTH_FAILED', message: 'Autentifikasi staf gagal.' });
       const token = crypto.randomUUID(); staffSessions.set(token, { role, createdAt: Date.now() });
-      return send(response, 200, { role, token });
+      return send(response, 200, { success: true, authenticated: true, staff: { role }, role, token });
     }
     if (request.method === 'POST' && request.url === '/api/staff/validate') {
       const staff = staffFromRequest(request); if (!staff) return send(response, 401, { message: 'Sesi staf tidak valid.' }); return send(response, 200, staff);

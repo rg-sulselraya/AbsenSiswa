@@ -64,7 +64,16 @@ function getDeviceToken() { let token = localStorage.getItem(DEVICE_KEY); if (!t
 function hasDeviceToken() { return Boolean(localStorage.getItem(DEVICE_KEY)); }
 function bindingFor(studentId) { return deviceBindings[studentId] || null; }
 function staffHeaders() { return staffSession?.token && !API_BASE.includes('script.google.com') ? { 'X-Staff-Session': staffSession.token } : {}; }
-function staffUrl(path) { const token = staffSession?.token; return token ? `${API_BASE}/${path}?token=${encodeURIComponent(token)}` : `${API_BASE}/${path}`; }
+function apiUrl(path, query = {}) {
+  const params = new URLSearchParams(query);
+  if (API_BASE.includes('script.google.com')) {
+    params.set('route', path);
+    return `${API_BASE}?${params.toString()}`;
+  }
+  const base = API_BASE.replace(/\/$/, '');
+  return `${base}/${path}${params.toString() ? `?${params.toString()}` : ''}`;
+}
+function staffUrl(path) { return apiUrl(path, staffSession?.token ? { token: staffSession.token } : {}); }
 function requestHeaders(extra = {}) { return { 'Content-Type': API_BASE.includes('script.google.com') ? 'text/plain;charset=utf-8' : 'application/json', ...extra }; }
 const AUTH_TIMEOUT_MS = 15000;
 function authErrorMessage(code, role = 'teacher') {
@@ -86,7 +95,7 @@ function currentStudent() { return studentSession ? students.find((student) => s
 async function loadStudents() {
   if (!API_BASE) return;
   try {
-    const response = await fetch(`${API_BASE}/students`);
+    const response = await fetch(apiUrl('students'));
     if (!response.ok) throw new Error('student endpoint unavailable');
     const data = await response.json();
     if (Array.isArray(data.students) && data.students.length) students = data.students.map((student) => ({ ...student, branchId: student.branchId || student.cabangId || '', branch: student.branch || student.branchName || '' }));
@@ -96,7 +105,7 @@ async function loadStudents() {
 async function loadBranches() {
   if (!API_BASE) return;
   try {
-    const response = await fetch(`${API_BASE}/branches`);
+    const response = await fetch(apiUrl('branches'));
     if (!response.ok) throw new Error('branch endpoint unavailable');
     const data = await response.json();
     if (Array.isArray(data.branches) && data.branches.length) branches = data.branches;
@@ -106,7 +115,7 @@ async function loadBranches() {
 async function loadDeviceBindings() {
   if (!API_BASE) return;
   try {
-    const response = await fetch(`${API_BASE}/device-bindings`);
+    const response = await fetch(apiUrl('device-bindings'));
     if (!response.ok) throw new Error('device binding endpoint unavailable');
     const data = await response.json();
     if (data.bindings && typeof data.bindings === 'object') deviceBindings = data.bindings;
@@ -116,7 +125,7 @@ async function loadDeviceBindings() {
 async function serverDeviceCheck(student, token) {
   if (!API_BASE) return { status: 'local' };
   try {
-    const response = await fetch(`${API_BASE}/device-binding/check`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) });
+    const response = await fetch(apiUrl('device-binding/check'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) });
     const data = await response.json();
     if (data.message && !data.status) return { status: 'error', message: data.message };
     if (!response.ok) return { status: 'error', message: data.message || 'Perangkat tidak dapat divalidasi.' };
@@ -129,7 +138,7 @@ async function loginStaff(role, password) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
   try {
-    const endpoint = `${API_BASE}/staff/login`;
+    const endpoint = apiUrl('staff/login');
     const response = await fetch(endpoint, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ role, password }), signal: controller.signal });
     let data;
     try { data = await response.json(); } catch { console.warn('[AUTH] Invalid JSON response', { endpoint, status: response.status }); return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn'); }
@@ -142,7 +151,7 @@ async function loginStaff(role, password) {
     staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Wali Kelas'} berhasil.`);
   } catch (error) {
     const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
-    console.warn('[AUTH] Request failed', { endpoint: `${API_BASE}/staff/login`, code });
+    console.warn('[AUTH] Request failed', { endpoint: apiUrl('staff/login'), code });
     showToast(authErrorMessage(code, role), 'warn');
   } finally { clearTimeout(timeout); }
 }
@@ -154,7 +163,7 @@ async function bindDevice(student) {
   const boundAt = new Date().toISOString();
   if (API_BASE) {
     try {
-      const response = await fetch(`${API_BASE}/device-binding/bind`, { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
+      const response = await fetch(apiUrl('device-binding/bind'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
       const data = await response.json();
       if (!response.ok || data.message) return showToast(data.message || 'Registrasi perangkat ditolak oleh server.', 'warn');
     } catch { return showToast('Registrasi perangkat gagal karena server tidak tersedia.', 'warn'); }
@@ -173,7 +182,7 @@ function saveAttendance(student, type) {
   if (type === 'out') { current.checkOut = time; current.status = 'Hadir'; }
   records[key] = current;
   persist();
-  if (API_BASE) fetch(`${API_BASE}/attendance`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...current, deviceToken: getDeviceToken() }) }).catch(() => {});
+  if (API_BASE) fetch(apiUrl('attendance'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...current, deviceToken: getDeviceToken() }) }).catch(() => {});
   return current;
 }
 
@@ -348,13 +357,13 @@ function sendWA(studentId) {
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
   waStatuses[key] = { status: 'processed', processedAt: new Date().toISOString(), studentId: student.id }; persist();
-  if (API_BASE) fetch(`${API_BASE}/wa-status`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: student.id, status: 'processed', processedAt: waStatuses[key].processedAt }) }).catch(() => {});
+  if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: student.id, status: 'processed', processedAt: waStatuses[key].processedAt }) }).catch(() => {});
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   showToast(`WhatsApp untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard();
 }
 
 function openConfirm(studentId) { pendingDeliveredId = studentId; $('#confirm-modal').hidden = false; }
-function confirmDelivered() { if (!pendingDeliveredId) return; const key = `${dateKey()}::${pendingDeliveredId}`; waStatuses[key] = { ...(waStatuses[key] || {}), status: 'delivered', deliveredAt: new Date().toISOString(), studentId: pendingDeliveredId }; persist(); if (API_BASE) fetch(`${API_BASE}/wa-status`, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, status: 'delivered', deliveredAt: waStatuses[key].deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; renderDashboard(); showToast('Status diubah menjadi Sudah Terkirim.'); }
+function confirmDelivered() { if (!pendingDeliveredId) return; const key = `${dateKey()}::${pendingDeliveredId}`; waStatuses[key] = { ...(waStatuses[key] || {}), status: 'delivered', deliveredAt: new Date().toISOString(), studentId: pendingDeliveredId }; persist(); if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, status: 'delivered', deliveredAt: waStatuses[key].deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; renderDashboard(); showToast('Status diubah menjadi Sudah Terkirim.'); }
 
 async function activateCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return showToast('Kamera tidak tersedia di browser ini. Gunakan input ID manual.', 'warn');

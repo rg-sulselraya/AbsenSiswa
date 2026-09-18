@@ -78,8 +78,8 @@ function requestHeaders(extra = {}) { return { 'Content-Type': API_BASE.includes
 const AUTH_TIMEOUT_MS = 15000;
 function authErrorMessage(code, role = 'teacher') {
   if (code === 'AUTH_CONFIG_MISSING' || code === 'ADMIN_TOKEN_NOT_CONFIGURED') return 'Konfigurasi autentifikasi staf belum lengkap.';
-  if (code === 'AUTH_FAILED') return role === 'teacher' ? 'Password Wali Kelas salah.' : 'Password Admin salah.';
-  if (code === 'STAFF_NOT_FOUND') return 'Akun Wali Kelas tidak ditemukan.';
+  if (code === 'AUTH_FAILED') return role === 'teacher' ? 'Password Student Mentor salah.' : 'Password Admin salah.';
+  if (code === 'STAFF_NOT_FOUND') return 'Akun Student Mentor tidak ditemukan.';
   if (code === 'AUTH_TIMEOUT') return 'Server autentifikasi terlalu lama merespons.';
   if (code === 'AUTH_INVALID_RESPONSE') return 'Response server autentifikasi tidak valid.';
   return 'Server autentifikasi staf tidak tersedia. Silakan coba lagi.';
@@ -148,7 +148,7 @@ async function loginStaff(role, password) {
       return showToast(code ? authErrorMessage(code, role) : (data?.message || 'Autentifikasi staf gagal.'), 'warn');
     }
     if (!data?.token || !data?.role) return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn');
-    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Wali Kelas'} berhasil.`);
+    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Student Mentor'} berhasil.`);
   } catch (error) {
     const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
     console.warn('[AUTH] Request failed', { endpoint: apiUrl('staff/login'), code });
@@ -291,11 +291,11 @@ async function confirmResetDevice() {
 function renderAll() { renderSummary(); renderDashboard(); }
 
 function setView(view) {
-  if (view === 'dashboard' && !['teacher', 'admin'].includes(authRole)) { showToast('Dashboard khusus Wali Kelas. Silakan login sebagai wali kelas.', 'warn'); return setView('login'); }
+  if (view === 'dashboard' && !['teacher', 'admin'].includes(authRole)) { showToast('Dashboard khusus Student Mentor. Silakan login sebagai Student Mentor.', 'warn'); return setView('login'); }
   if (view === 'admin' && authRole !== 'admin') { showToast('Manajemen Device hanya dapat diakses Admin.', 'warn'); return setView('login'); }
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#admin-view').classList.toggle('active-view', view === 'admin');
-  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : 'Dashboard Wali Kelas';
+  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : 'Dashboard Student Mentor';
   if (view === 'admin') renderDeviceManagement();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }

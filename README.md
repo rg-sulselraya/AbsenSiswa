@@ -1,6 +1,6 @@
 # Aplikasi Presensi Siswa
 
-MVP responsif untuk scan presensi dan dashboard wali kelas. Saat ini UI berjalan tanpa credential Google Sheets di browser: data presensi disimpan lokal sebagai fallback, sedangkan integrasi produksi diarahkan ke backend melalui `VITE_ATTENDANCE_API_URL`.
+MVP responsif untuk scan presensi dan dashboard Student Mentor. Saat ini UI berjalan tanpa credential Google Sheets di browser: data presensi disimpan lokal sebagai fallback, sedangkan integrasi produksi diarahkan ke backend melalui `VITE_ATTENDANCE_API_URL`.
 
 ## Menjalankan
 
@@ -17,7 +17,7 @@ Backend yang direkomendasikan adalah Google Apps Script. Panduan lengkap dan kod
 
 Buat backend (atau serverless functions) yang membaca spreadsheet `17xq9XNJchMRE57MMNSYok_jr9uXjZAGKXpzoI1kYroE` menggunakan service account dari environment variable. Credential tidak boleh masuk ke `app.js` atau bundle frontend.
 
-Flow frontend: login akun siswa → scan QR cabang (`CABANG-001`) → validasi cabang siswa → scan pertama mengisi Jam Datang → scan kedua mengisi Jam Pulang pada record yang sama. Wali Kelas hanya membuka dashboard; tidak ada scanner di dashboard.
+Flow frontend: login akun siswa → scan QR cabang (`CABANG-001`) → validasi cabang siswa → scan pertama mengisi Jam Datang → scan kedua mengisi Jam Pulang pada record yang sama. Student Mentor hanya membuka dashboard; tidak ada scanner di dashboard.
 
 Frontend mengharapkan endpoint berikut:
 
@@ -32,7 +32,7 @@ Frontend mengharapkan endpoint berikut:
 
 Reference backend minimal tersedia di [server.mjs](/Users/fa-13744/Documents/ChatGPT/Scan%20Barcode/server.mjs), dengan penyimpanan lokal `.data` untuk development. Jalankan `npm run server` dan gunakan `VITE_ATTENDANCE_API_URL=/api`; Vite mem-proxy `/api` ke port 8787. Untuk produksi, ganti adapter file tersebut dengan Google Sheets/database existing dan tetap pertahankan validasi server-side.
 Jika `PRESENSI_ADMIN_TOKEN` diisi pada backend reference, endpoint reset juga menolak request tanpa header Admin. Pada produksi, gunakan session/role Admin yang sudah ada, bukan token frontend.
-Login Wali Kelas/Admin sengaja tidak memiliki fallback frontend. Tanpa endpoint backend yang dikonfigurasi, pemilihan tab staf akan ditolak agar siswa tidak bisa menaikkan role dari browser.
+Login Student Mentor/Admin sengaja tidak memiliki fallback frontend. Tanpa endpoint backend yang dikonfigurasi, pemilihan tab staf akan ditolak agar siswa tidak bisa menaikkan role dari browser.
 
 Spreadsheet yang diberikan telah dicek read-only. Sheet `Database Siswa` memiliki header `User Serial`, `Nama Siswa`, `No Ortu`, `Nama Sekolah`, `Grade`, dan `Kelas`. Mapping backend: `User Serial → id`, `Nama Siswa → name`, `No Ortu → parentPhone`, `Grade → grade`, `Kelas → className`. Karena sheet existing belum memuat ID cabang, backend perlu menambahkan mapping akses (atau sheet master cabang) tanpa mengubah data siswa. Jangan mengubah sheet siswa existing. Jika diperlukan, gunakan sheet tambahan `Presensi` dengan kolom `Tanggal, ID Siswa, Nama Siswa, Kelas, ID Cabang, Cabang, Jam Datang, Jam Pulang, Status`, `Database Cabang` dengan kolom `ID Cabang, Nama Cabang, Status`, dan sheet `StatusWA` dengan kolom `Tanggal, ID Siswa, Status WA, Waktu Diproses, Waktu Terkirim`.
 

@@ -8,7 +8,7 @@ Folder ini berisi backend yang membaca dan menulis Google Sheets tanpa menyimpan
 2. Salin isi `Code.gs` ke editor Apps Script.
 3. Jalankan fungsi `setupProperties()` sekali. Izinkan akses Sheets jika diminta.
 4. Buka **Project Settings → Script properties**, lalu ganti:
-   - `PRESENSI_STAFF_PASSWORD` dengan password Wali Kelas.
+   - `PRESENSI_STAFF_PASSWORD` dengan password Student Mentor.
    - `PRESENSI_ADMIN_PASSWORD` dengan password Admin.
    - `SPREADSHEET_ID` dengan ID Google Sheet sekolah jika berbeda.
 5. Isi sheet `Database Cabang` dan `Siswa Cabang` yang dibuat oleh `setupProperties()`.

@@ -17,6 +17,7 @@ const DEVICE_KEY = 'ruang-kelas-device-token-v1';
 const BINDING_KEY = 'ruang-kelas-device-bindings-v1';
 const RESET_LOG_KEY = 'ruang-kelas-device-reset-log-v1';
 const STAFF_SESSION_KEY = 'ruang-kelas-staff-session-v1';
+const PROFILE_PHOTO_KEY = 'ruang-kelas-profile-photo-v1';
 const BRANCHES = [
   { id: 'CABANG-001', name: 'Hertasning', status: 'Aktif' },
   { id: 'CABANG-002', name: 'Panakkukang', status: 'Aktif' },
@@ -60,6 +61,19 @@ const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&':
 function loadJson(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
 function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); localStorage.setItem(WA_KEY, JSON.stringify(waStatuses)); localStorage.setItem(BINDING_KEY, JSON.stringify(deviceBindings)); localStorage.setItem(RESET_LOG_KEY, JSON.stringify(deviceResetLog)); if (studentSession) localStorage.setItem(SESSION_KEY, JSON.stringify(studentSession)); else localStorage.removeItem(SESSION_KEY); }
 function persistStaffSession() { if (staffSession) localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(staffSession)); else localStorage.removeItem(STAFF_SESSION_KEY); }
+function profileIdentity() {
+  if (studentSession) { const student = currentStudent(); return { name: student?.name || studentSession.name || 'Nama Siswa', role: 'Siswa', initials: initials(student?.name || studentSession.name || 'NA') }; }
+  if (['teacher', 'admin'].includes(authRole) || staffSession) return { name: 'Student Mentor', role: 'Akses penuh', initials: 'SM' };
+  return { name: 'Nama Siswa', role: 'Belum login', initials: 'NA' };
+}
+function renderProfileIdentity() {
+  const identity = profileIdentity(); const name = $('#profile-name'); const role = $('#profile-role'); const avatar = $('#profile-avatar'); if (!name || !role || !avatar) return;
+  name.textContent = identity.name; role.textContent = identity.role;
+  const photo = localStorage.getItem(PROFILE_PHOTO_KEY); avatar.textContent = photo ? '' : identity.initials; avatar.style.backgroundImage = photo ? `url("${photo}")` : ''; avatar.classList.toggle('has-photo', Boolean(photo));
+}
+function closeProfileMenu() { const menu = $('#profile-menu'); const trigger = $('#profile-trigger'); if (!menu || !trigger) return; menu.hidden = true; trigger.setAttribute('aria-expanded', 'false'); }
+function toggleProfileMenu() { const menu = $('#profile-menu'); const trigger = $('#profile-trigger'); if (!menu || !trigger) return; menu.hidden = !menu.hidden; trigger.setAttribute('aria-expanded', String(!menu.hidden)); }
+function logoutCurrentAccount() { studentSession = null; staffSession = null; authRole = null; persist(); persistStaffSession(); closeProfileMenu(); stopCamera(); setView('login'); renderProfileIdentity(); showToast('Anda telah keluar dari akun.'); }
 function getDeviceToken() { let token = localStorage.getItem(DEVICE_KEY); if (!token) { token = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_KEY, token); } return token; }
 function hasDeviceToken() { return Boolean(localStorage.getItem(DEVICE_KEY)); }
 function bindingFor(studentId) { return deviceBindings[studentId] || null; }
@@ -148,7 +162,7 @@ async function loginStaff(role, password) {
       return showToast(code ? authErrorMessage(code, role) : (data?.message || 'Autentifikasi staf gagal.'), 'warn');
     }
     if (!data?.token || !data?.role) return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn');
-    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView('dashboard'); showToast('Login Student Mentor berhasil.');
+    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); renderProfileIdentity(); setView('dashboard'); showToast('Login Student Mentor berhasil.');
   } catch (error) {
     const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
     console.warn('[AUTH] Request failed', { endpoint: apiUrl('staff/login'), code });
@@ -172,7 +186,7 @@ async function bindDevice(student) {
   persist(); $('#bind-modal').hidden = true; pendingBindStudent = null; completeStudentLogin(student); showToast('Perangkat berhasil terdaftar untuk akun ini.');
 }
 
-function completeStudentLogin(student) { studentSession = { id: student.id, name: student.name, className: student.className, branch: student.branch, branchId: student.branchId }; authRole = 'student'; persist(); renderSession(); }
+function completeStudentLogin(student) { studentSession = { id: student.id, name: student.name, className: student.className, branch: student.branch, branchId: student.branchId }; staffSession = null; authRole = 'student'; persist(); persistStaffSession(); renderProfileIdentity(); renderSession(); }
 
 function saveAttendance(student, type) {
   const key = `${dateKey()}::${student.id}`;
@@ -367,7 +381,7 @@ async function loginStudent() {
   completeStudentLogin(student); showToast(`Selamat datang kembali, ${student.name}.`);
 }
 
-function logoutStudent() { studentSession = null; authRole = null; persist(); stopCamera(); $('#scan-result').className = 'scan-result'; setView('login'); showToast('Anda telah keluar dari akun siswa.'); }
+function logoutStudent() { studentSession = null; authRole = null; persist(); stopCamera(); renderProfileIdentity(); $('#scan-result').className = 'scan-result'; setView('login'); showToast('Anda telah keluar dari akun siswa.'); }
 
 function sendWA(studentId) {
   const row = allRows().find(({ student }) => student.id === studentId); if (!row?.record) return;
@@ -399,6 +413,10 @@ async function scanVideo(video) { if (!barcodeDetector || !cameraStream) return;
 function stopCamera() { cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null; if (cameraTimer) clearTimeout(cameraTimer); }
 
 document.addEventListener('click', (event) => {
+  const profileTrigger = event.target.closest('#profile-trigger'); if (profileTrigger) return toggleProfileMenu();
+  if (!event.target.closest('.profile-menu-wrap')) closeProfileMenu();
+  const editPhoto = event.target.closest('#edit-profile-photo'); if (editPhoto) return $('#profile-photo-input').click();
+  const profileLogout = event.target.closest('#profile-logout'); if (profileLogout) return logoutCurrentAccount();
   const studentResult = event.target.closest('[data-student-id]'); if (studentResult) chooseStudent(studentResult.dataset.studentId);
   if (!event.target.closest('.student-picker')) { const results = $('#student-results'); if (results) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); } }
   const nav = event.target.closest('[data-view]'); if (nav) setView(nav.dataset.view);
@@ -411,6 +429,7 @@ $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); 
 $('#student-login-submit').addEventListener('click', loginStudent);
 $('#student-search').addEventListener('input', () => { $('#student-account').value = ''; populateStudentAccounts(); });
 $('#teacher-login-submit').addEventListener('click', () => loginStaff('teacher', $('#teacher-password').value));
+$('#profile-photo-input').addEventListener('change', (event) => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) return showToast('Pilih file foto yang valid.', 'warn'); if (file.size > 2 * 1024 * 1024) return showToast('Ukuran foto maksimal 2 MB.', 'warn'); const reader = new FileReader(); reader.onload = () => { localStorage.setItem(PROFILE_PHOTO_KEY, String(reader.result)); renderProfileIdentity(); closeProfileMenu(); showToast('Foto profil berhasil diperbarui.'); }; reader.readAsDataURL(file); event.target.value = ''; });
 $('#logout-button').addEventListener('click', logoutStudent);
 $('#bind-cancel').addEventListener('click', cancelBind); $('#bind-confirm').addEventListener('click', () => { if (pendingBindStudent) bindDevice(pendingBindStudent); });
 $('#reset-device-cancel').addEventListener('click', () => { pendingResetStudentId = null; $('#reset-device-modal').hidden = true; }); $('#reset-device-confirm').addEventListener('click', confirmResetDevice);
@@ -426,4 +445,5 @@ $('#modal-cancel').addEventListener('click', () => { $('#confirm-modal').hidden 
 window.addEventListener('beforeunload', stopCamera);
 
 $('#display-date').textContent = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
-Promise.all([loadStudents(), loadBranches(), loadDeviceBindings()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); resumeStudentSession(); });
+Promise.all([loadStudents(), loadBranches(), loadDeviceBindings()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); resumeStudentSession(); });
+renderProfileIdentity();

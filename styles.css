@@ -64,3 +64,10 @@ html,body{max-width:100%;overflow-x:hidden}
 .profile-menu-wrap{position:relative}.profile-trigger{display:flex;align-items:center;gap:10px;background:transparent;color:var(--ink);padding:3px 0;text-align:right}.profile-trigger:focus-visible{outline:2px solid #64b59b;outline-offset:3px;border-radius:8px}.profile-summary{display:flex;flex-direction:column;align-items:flex-end;line-height:1.2}.profile-summary b{font-size:11px;color:#31534e;max-width:190px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.profile-summary small{font-size:9px;color:#8ca09c;margin-top:3px}.mini-avatar{flex:none;background-size:cover;background-position:center;background-repeat:no-repeat}.mini-avatar.has-photo{color:transparent}.profile-menu{position:absolute;z-index:25;right:0;top:47px;width:170px;padding:5px;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 12px 28px rgba(29,57,54,.14)}.profile-menu button{display:block;width:100%;padding:10px 11px;border-radius:6px;background:transparent;text-align:left;color:#496a64;font-size:11px}.profile-menu button:hover,.profile-menu button:focus-visible{background:#eff8f4;color:#267e75;outline:0}
 @media(max-width:760px){.profile-summary b{max-width:125px}.profile-summary small{display:none}.profile-menu{top:43px}.topbar-actions{gap:8px}}
 @media(max-width:420px){.profile-summary b{max-width:105px;font-size:10px}.profile-trigger{gap:7px}.mini-avatar{width:31px;height:31px}}
+
+/* Login is intentionally focused on the account form; the introductory copy is hidden. */
+.login-layout{display:flex;justify-content:center;align-items:center}
+.login-copy{display:none}
+.login-card{width:min(390px,100%)}
+@media(max-width:760px){.login-layout{display:block}}
+@media (min-width:761px) and (max-width:900px){.login-layout{display:block;min-height:auto;max-width:540px;padding-top:10px}}

@@ -302,7 +302,11 @@ function setView(view) {
 
 function populateStudentAccounts() {
   const select = $('#student-account');
-  select.innerHTML = '<option value="">Pilih nama siswa</option>' + students.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} · ${esc(student.className)}</option>`).join('');
+  const search = String($('#student-search')?.value || '').trim().toLocaleLowerCase('id-ID');
+  const selected = select.value;
+  const matches = students.filter((student) => !search || `${student.name} ${student.className || ''} ${student.id}`.toLocaleLowerCase('id-ID').includes(search));
+  select.innerHTML = '<option value="">Pilih nama siswa</option>' + matches.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} · ${esc(student.className || 'Kelas belum diisi')}</option>`).join('');
+  select.value = matches.some((student) => student.id === selected) ? selected : '';
 }
 
 function renderSession() {
@@ -387,6 +391,7 @@ document.addEventListener('click', (event) => {
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
 $('#student-login-submit').addEventListener('click', loginStudent);
+$('#student-search').addEventListener('input', populateStudentAccounts);
 $('#teacher-login-submit').addEventListener('click', () => loginStaff('teacher', $('#teacher-password').value));
 $('#admin-login-submit').addEventListener('click', () => loginStaff('admin', $('#admin-password').value));
 $('#logout-button').addEventListener('click', logoutStudent);

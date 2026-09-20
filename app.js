@@ -307,6 +307,22 @@ function populateStudentAccounts() {
   const matches = students.filter((student) => !search || `${student.name} ${student.className || ''} ${student.id}`.toLocaleLowerCase('id-ID').includes(search));
   select.innerHTML = '<option value="">Pilih nama siswa</option>' + matches.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} · ${esc(student.className || 'Kelas belum diisi')}</option>`).join('');
   select.value = matches.some((student) => student.id === selected) ? selected : '';
+  const results = $('#student-results');
+  if (!results) return;
+  if (!search) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); return; }
+  const visibleMatches = matches.slice(0, 50);
+  results.innerHTML = visibleMatches.length ? visibleMatches.map((student) => `<button type="button" class="student-result" role="option" data-student-id="${esc(student.id)}"><b>${esc(student.name)}</b><small>${esc(student.className || 'Kelas belum diisi')}</small></button>`).join('') : '<div class="student-result-empty">Nama siswa tidak ditemukan.</div>';
+  results.hidden = false;
+  $('#student-search').setAttribute('aria-expanded', 'true');
+}
+
+function chooseStudent(studentId) {
+  const student = students.find((item) => item.id === studentId);
+  if (!student) return;
+  $('#student-account').value = student.id;
+  $('#student-search').value = student.name;
+  $('#student-results').hidden = true;
+  $('#student-search').setAttribute('aria-expanded', 'false');
 }
 
 function renderSession() {
@@ -383,6 +399,8 @@ async function scanVideo(video) { if (!barcodeDetector || !cameraStream) return;
 function stopCamera() { cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null; if (cameraTimer) clearTimeout(cameraTimer); }
 
 document.addEventListener('click', (event) => {
+  const studentResult = event.target.closest('[data-student-id]'); if (studentResult) chooseStudent(studentResult.dataset.studentId);
+  if (!event.target.closest('.student-picker')) { const results = $('#student-results'); if (results) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); } }
   const nav = event.target.closest('[data-view]'); if (nav) setView(nav.dataset.view);
   const role = event.target.closest('[data-role]'); if (role) { $$('.role-tab').forEach((tab) => tab.classList.toggle('active', tab === role)); const studentRole = role.dataset.role === 'student'; const teacherRole = role.dataset.role === 'teacher'; $('#student-login-panel').hidden = !studentRole; $('#teacher-login-panel').hidden = !teacherRole; $('#admin-login-panel').hidden = role.dataset.role !== 'admin'; }
   const resetDevice = event.target.closest('[data-reset-device]'); if (resetDevice) openResetDevice(resetDevice.dataset.resetDevice);
@@ -391,7 +409,7 @@ document.addEventListener('click', (event) => {
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
 $('#student-login-submit').addEventListener('click', loginStudent);
-$('#student-search').addEventListener('input', populateStudentAccounts);
+$('#student-search').addEventListener('input', () => { $('#student-account').value = ''; populateStudentAccounts(); });
 $('#teacher-login-submit').addEventListener('click', () => loginStaff('teacher', $('#teacher-password').value));
 $('#admin-login-submit').addEventListener('click', () => loginStaff('admin', $('#admin-password').value));
 $('#logout-button').addEventListener('click', logoutStudent);

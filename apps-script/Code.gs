@@ -136,13 +136,16 @@ function studentLogin_(payload) {
   const row = values.slice(1).find(item => String(value_(item, map, 'User Serial', 'ID Siswa', 'id') || '').trim() === studentId);
   if (!row) return json_({ success: false, authenticated: false, code: 'STUDENT_AUTH_FAILED', message: 'Password siswa salah.' }, null, 401);
   const storedHash = String(value_(row, map, 'PIN Hash', 'Password Hash', 'Password Siswa Hash', 'Kata Sandi Hash') || '').trim().toLowerCase();
+  const storedPassword = String(value_(row, map, 'Password', 'Password Siswa', 'Kata Sandi') || '');
   const salt = String(value_(row, map, 'Password Salt', 'Student Password Salt') || '').trim();
-  if (!storedHash) {
+  if (!storedHash && !storedPassword) {
     console.warn('[STUDENT AUTH] Password hash is not configured for student: ' + studentId);
     return json_({ success: false, authenticated: false, code: 'STUDENT_PASSWORD_NOT_CONFIGURED', message: 'Password siswa belum dikonfigurasi.' }, null, 503);
   }
-  const candidateHash = salt ? sha256_(salt + ':' + password) : sha256_(password);
-  if (candidateHash !== storedHash) return json_({ success: false, authenticated: false, code: 'STUDENT_AUTH_FAILED', message: 'Password siswa salah.' }, null, 401);
+  const valid = storedHash
+    ? (salt ? sha256_(salt + ':' + password) : sha256_(password)) === storedHash
+    : password === storedPassword;
+  if (!valid) return json_({ success: false, authenticated: false, code: 'STUDENT_AUTH_FAILED', message: 'Password siswa salah.' }, null, 401);
   return json_({ success: true, authenticated: true, student: { id: studentId } });
 }
 

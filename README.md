@@ -23,7 +23,7 @@ Frontend mengharapkan endpoint berikut:
 
 - `GET /students` → `{ "students": [{ "id", "name", "className", "branch", "grade", "parentPhone" }] }`
 - `GET /branches` → `{ "branches": [{ "id", "name", "status" }] }`
-- `POST /student/login` → menerima `{ studentId, password }` dan mengembalikan `{ success, authenticated, student: { id } }`; backend membaca hash password dari sheet dan tidak mengirimkannya ke browser.
+- `POST /student/login` → menerima `{ studentId, password }` dan mengembalikan `{ success, authenticated, student: { id } }`; backend membaca kolom `Password` atau hash password dari sheet dan tidak mengirimkannya ke browser.
 - `POST /attendance` → menerima `{ date, studentId, name, className, branchId, branch, checkIn, checkOut, status }`
 - `GET /wa-status` → membaca status WA per siswa dan jenis pesan.
 - `POST /wa-status` → menerima `{ date, studentId, messageType: "arrival"|"departure", status, processedAt?, deliveredAt? }`

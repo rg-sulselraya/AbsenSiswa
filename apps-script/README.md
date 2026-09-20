@@ -24,7 +24,7 @@ Sheet `StatusWA` menyimpan status pesan secara terpisah untuk `arrival` (jam dat
 
 ### Password siswa
 
-Jalankan `setupStudentPasswordColumns()` sekali dari editor Apps Script untuk menambahkan kolom `Password Hash` dan `Password Salt` tanpa menghapus kolom existing. Lalu isi password awal dengan menjalankan, misalnya, `setStudentPassword('ID_SISWA', 'PasswordAwal')` dari editor Apps Script. Ganti nilai contoh sebelum menjalankan dan jangan mencatat password di log. Fungsi tersebut hanya menyimpan hash bersalt; password asli tidak disimpan. Endpoint `student/login` hanya membaca hash di server dan tidak pernah mengirimkannya ke browser. Password siswa wajib diisi sebelum akun dapat digunakan.
+Endpoint `student/login` membaca kolom `Password` yang sudah ada pada `Database Siswa` berdasarkan `User Serial`, sehingga tidak perlu menambah kolom baru untuk mulai menggunakannya. Password hanya dibandingkan di Apps Script dan tidak pernah dikirim ke browser. Untuk keamanan yang lebih baik, gunakan `setupStudentPasswordColumns()` lalu `setStudentPassword('ID_SISWA', 'PasswordAwal')` agar akun beralih ke `Password Hash` + `Password Salt`; jika keduanya tersedia, hash selalu diprioritaskan. Jangan mencatat password di log.
 
 ## Menghubungkan ke GitHub Pages
 

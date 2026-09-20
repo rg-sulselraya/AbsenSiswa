@@ -70,7 +70,7 @@ const server = http.createServer(async (request, response) => {
       return send(response, 200, { status: 'TERDAFTAR' });
     }
     if (request.method === 'POST' && request.url === '/api/device-binding/reset') {
-      const staff = staffFromRequest(request); if (staff?.role !== 'admin' || (ADMIN_API_TOKEN && request.headers['x-admin-token'] !== ADMIN_API_TOKEN)) return send(response, 403, { message: 'Hanya Admin yang dapat melakukan Reset Device.' });
+      const staff = staffFromRequest(request); if (!['teacher', 'admin'].includes(staff?.role) || (ADMIN_API_TOKEN && request.headers['x-admin-token'] !== ADMIN_API_TOKEN)) return send(response, 403, { message: 'Hanya Student Mentor yang dapat melakukan Reset Device.' });
       const { studentId, admin = 'Admin', reason = 'Reset Device' } = await body(request);
       const existing = bindings[studentId];
       if (!existing) return send(response, 404, { message: 'Binding siswa tidak ditemukan.' });

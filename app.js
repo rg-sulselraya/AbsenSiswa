@@ -148,7 +148,7 @@ async function loginStaff(role, password) {
       return showToast(code ? authErrorMessage(code, role) : (data?.message || 'Autentifikasi staf gagal.'), 'warn');
     }
     if (!data?.token || !data?.role) return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn');
-    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView(role === 'admin' ? 'admin' : 'dashboard'); showToast(`Login ${role === 'admin' ? 'Admin' : 'Student Mentor'} berhasil.`);
+    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); setView('dashboard'); showToast('Login Student Mentor berhasil.');
   } catch (error) {
     const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
     console.warn('[AUTH] Request failed', { endpoint: apiUrl('staff/login'), code });
@@ -292,7 +292,7 @@ function renderAll() { renderSummary(); renderDashboard(); }
 
 function setView(view) {
   if (view === 'dashboard' && !['teacher', 'admin'].includes(authRole)) { showToast('Dashboard khusus Student Mentor. Silakan login sebagai Student Mentor.', 'warn'); return setView('login'); }
-  if (view === 'admin' && authRole !== 'admin') { showToast('Manajemen Device hanya dapat diakses Admin.', 'warn'); return setView('login'); }
+  if (view === 'admin' && !['teacher', 'admin'].includes(authRole)) { showToast('Manajemen Device hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#admin-view').classList.toggle('active-view', view === 'admin');
   $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : 'Dashboard Student Mentor';
@@ -402,7 +402,7 @@ document.addEventListener('click', (event) => {
   const studentResult = event.target.closest('[data-student-id]'); if (studentResult) chooseStudent(studentResult.dataset.studentId);
   if (!event.target.closest('.student-picker')) { const results = $('#student-results'); if (results) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); } }
   const nav = event.target.closest('[data-view]'); if (nav) setView(nav.dataset.view);
-  const role = event.target.closest('[data-role]'); if (role) { $$('.role-tab').forEach((tab) => tab.classList.toggle('active', tab === role)); const studentRole = role.dataset.role === 'student'; const teacherRole = role.dataset.role === 'teacher'; $('#student-login-panel').hidden = !studentRole; $('#teacher-login-panel').hidden = !teacherRole; $('#admin-login-panel').hidden = role.dataset.role !== 'admin'; }
+  const role = event.target.closest('[data-role]'); if (role) { $$('.role-tab').forEach((tab) => tab.classList.toggle('active', tab === role)); const studentRole = role.dataset.role === 'student'; const teacherRole = role.dataset.role === 'teacher'; $('#student-login-panel').hidden = !studentRole; $('#teacher-login-panel').hidden = !teacherRole; }
   const resetDevice = event.target.closest('[data-reset-device]'); if (resetDevice) openResetDevice(resetDevice.dataset.resetDevice);
   const wa = event.target.closest('[data-wa]'); if (wa) sendWA(wa.dataset.wa);
   const status = event.target.closest('[data-status-id]'); if (status && waStatuses[`${dateKey()}::${status.dataset.statusId}`]?.status === 'processed') openConfirm(status.dataset.statusId);
@@ -411,7 +411,6 @@ $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); 
 $('#student-login-submit').addEventListener('click', loginStudent);
 $('#student-search').addEventListener('input', () => { $('#student-account').value = ''; populateStudentAccounts(); });
 $('#teacher-login-submit').addEventListener('click', () => loginStaff('teacher', $('#teacher-password').value));
-$('#admin-login-submit').addEventListener('click', () => loginStaff('admin', $('#admin-password').value));
 $('#logout-button').addEventListener('click', logoutStudent);
 $('#bind-cancel').addEventListener('click', cancelBind); $('#bind-confirm').addEventListener('click', () => { if (pendingBindStudent) bindDevice(pendingBindStudent); });
 $('#reset-device-cancel').addEventListener('click', () => { pendingResetStudentId = null; $('#reset-device-modal').hidden = true; }); $('#reset-device-confirm').addEventListener('click', confirmResetDevice);

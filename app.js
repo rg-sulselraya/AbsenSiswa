@@ -69,6 +69,7 @@ function profileIdentity() {
 }
 function renderProfileIdentity() {
   const wrap = $('.profile-menu-wrap'); const authenticated = Boolean(studentSession || staffSession || ['teacher', 'admin'].includes(authRole)); if (wrap) wrap.hidden = !authenticated; if (!authenticated) closeProfileMenu();
+  const branchBarcodeNav = $('#branch-barcode-nav'); if (branchBarcodeNav) branchBarcodeNav.hidden = !['teacher', 'admin'].includes(authRole);
   const identity = profileIdentity(); const name = $('#profile-name'); const role = $('#profile-role'); const avatar = $('#profile-avatar'); if (!name || !role || !avatar) return;
   name.textContent = identity.name; role.textContent = identity.role;
   const photo = localStorage.getItem(PROFILE_PHOTO_KEY); avatar.textContent = photo ? '' : identity.initials; avatar.style.backgroundImage = photo ? `url("${photo}")` : ''; avatar.classList.toggle('has-photo', Boolean(photo));
@@ -331,13 +332,41 @@ async function confirmResetDevice() {
 
 function renderAll() { renderSummary(); renderDashboard(); }
 
+let barcodeLibraryPromise = null;
+function loadBarcodeLibrary() {
+  if (globalThis.JsBarcode) return Promise.resolve(globalThis.JsBarcode);
+  if (barcodeLibraryPromise) return barcodeLibraryPromise;
+  barcodeLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js'; script.async = true;
+    script.onload = () => globalThis.JsBarcode ? resolve(globalThis.JsBarcode) : reject(new Error('Barcode library tidak tersedia.'));
+    script.onerror = () => reject(new Error('Barcode library tidak dapat dimuat.')); document.head.appendChild(script);
+  });
+  return barcodeLibraryPromise;
+}
+async function renderBranchBarcodes() {
+  const grid = $('#branch-barcode-grid'); if (!grid) return;
+  if (!branches.length) { grid.innerHTML = '<div class="empty-state"><div>▤</div><b>Data cabang belum tersedia</b><span>Isi Database Cabang terlebih dahulu.</span></div>'; return; }
+  grid.innerHTML = branches.filter(branch => branch.status !== 'Nonaktif').map(branch => `<article class="branch-barcode-card" data-branch-code="${esc(branch.id)}"><div class="branch-barcode-heading"><div><span class="section-kicker">ID CABANG</span><h2>${esc(branch.name)}</h2><small>${esc(branch.id)}</small></div><span class="branch-status">${esc(branch.status || 'Aktif')}</span></div><div class="barcode-surface"><svg class="branch-barcode" role="img" aria-label="Barcode ${esc(branch.name)}"></svg><p class="barcode-fallback">${esc(branch.id)}</p></div><button class="outline-button branch-print-button" type="button" data-print-branch="${esc(branch.id)}">▣ Cetak barcode</button></article>`).join('');
+  try {
+    const JsBarcode = await loadBarcodeLibrary();
+    $$('.branch-barcode-card').forEach(card => { const code = card.dataset.branchCode; const svg = $('.branch-barcode', card); JsBarcode(svg, code, { format: 'CODE128', lineColor: '#7a1f3d', background: '#ffffff', width: 2, height: 72, margin: 8, displayValue: true, fontSize: 14, textMargin: 6 }); });
+  } catch (error) { console.warn('[BARCODE] Generator unavailable', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('Generator barcode belum dapat dimuat. ID cabang tetap dapat dicetak.', 'warn'); }
+}
+function printBranchBarcode(branchId) {
+  $$('.branch-barcode-card').forEach(card => { card.classList.toggle('print-target', card.dataset.branchCode === branchId); });
+  window.print();
+  $$('.branch-barcode-card').forEach(card => card.classList.remove('print-target'));
+}
+
 function setView(view) {
   if (view === 'dashboard' && !['teacher', 'admin'].includes(authRole)) { showToast('Dashboard khusus Student Mentor. Silakan login sebagai Student Mentor.', 'warn'); return setView('login'); }
   if (view === 'admin' && !['teacher', 'admin'].includes(authRole)) { showToast('Manajemen Device hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
+  if (view === 'branch-barcode' && !['teacher', 'admin'].includes(authRole)) { showToast('Pembuatan Barcode Cabang hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
-  $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#admin-view').classList.toggle('active-view', view === 'admin');
-  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : 'Dashboard Student Mentor';
+  $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#admin-view').classList.toggle('active-view', view === 'admin'); $('#branch-barcode-view').classList.toggle('active-view', view === 'branch-barcode');
+  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : view === 'branch-barcode' ? 'Barcode Cabang' : 'Dashboard Student Mentor';
   if (view === 'admin') renderDeviceManagement();
+  if (view === 'branch-barcode') renderBranchBarcodes();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }
 
@@ -489,6 +518,8 @@ $('#search-input').addEventListener('input', renderDashboard); $('#class-filter'
 $('#filter-toggle').addEventListener('click', () => $('#filter-row').classList.toggle('show'));
 $('#reset-filter').addEventListener('click', () => { $('#class-filter').value = 'all'; $('#attendance-filter').value = 'all'; $('#wa-filter').value = 'all'; $('#search-input').value = ''; renderDashboard(); });
 $('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', () => { renderDeviceManagement(); showToast('Daftar device berhasil disegarkan.'); });
+$('#refresh-branch-barcode').addEventListener('click', renderBranchBarcodes); $('#print-all-branch-barcode').addEventListener('click', () => { $$('.branch-barcode-card').forEach(card => card.classList.add('print-target')); window.print(); $$('.branch-barcode-card').forEach(card => card.classList.remove('print-target')); });
+document.addEventListener('click', event => { const printButton = event.target.closest('[data-print-branch]'); if (printButton) printBranchBarcode(printButton.dataset.printBranch); });
 $('#refresh-button').addEventListener('click', () => { renderAll(); showToast('Rekap berhasil disegarkan.'); });
 $('#export-button').addEventListener('click', () => { const rows = allRows(); const csv = [['Siswa', 'ID', 'Kelas', 'ID Cabang', 'Cabang', 'Jam Datang', 'Jam Pulang', 'Status', 'Status WA Datang', 'Status WA Pulang'], ...rows.map(({ student, record, wa }) => [student.name, student.id, student.className, record?.branchId || student.branchId || '', record?.branch || student.branch || '', record?.checkIn || '', record?.checkOut || '', record ? (record.checkOut ? 'Hadir' : 'Belum Pulang') : 'Belum Hadir', wa.arrival.status, wa.departure.status])].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `rekap-presensi-${dateKey()}.csv`; link.click(); URL.revokeObjectURL(link.href); showToast('Rekap CSV berhasil diunduh.'); });
 $('#modal-cancel').addEventListener('click', () => { $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; }); $('#modal-confirm').addEventListener('click', confirmDelivered);

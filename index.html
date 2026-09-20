@@ -19,6 +19,7 @@
           <button class="nav-item active" data-view="scan"><span class="nav-icon">⌁</span><span>Presensi Siswa</span></button>
           <button class="nav-item" data-view="dashboard"><span class="nav-icon">▦</span><span>Dashboard Student Mentor</span></button>
           <button class="nav-item" data-view="admin"><span class="nav-icon">⚙</span><span>Manajemen Device</span></button>
+          <button class="nav-item" data-view="branch-barcode" id="branch-barcode-nav" hidden><span class="nav-icon">▤</span><span>Barcode Cabang</span></button>
         </nav>
       </aside>
 
@@ -64,6 +65,12 @@
           <div class="page-intro dashboard-intro"><div><p class="eyebrow">ADMINISTRASI SISTEM</p><h1>Manajemen Device</h1><p class="subcopy">Kelola satu perangkat terdaftar untuk setiap akun siswa. Reset device tidak menghapus akun maupun presensi.</p></div><div class="dashboard-actions"><button class="outline-button" id="refresh-device-button">↻ Segarkan</button></div></div>
           <div class="device-notice"><span class="info-icon">i</span><div><b>Device binding aktif</b><p>Validasi perangkat harus dilakukan server. Token perangkat adalah identifier aplikasi yang aman, bukan nomor hardware HP.</p></div></div>
           <div class="table-card card"><div class="table-toolbar"><div><span class="section-kicker">DEVICE BINDING</span><h2>Daftar perangkat siswa</h2></div><div class="table-tools"><div class="search-box"><span>⌕</span><input id="device-search" placeholder="Cari nama atau ID siswa..." /></div><select class="device-filter" id="device-status-filter"><option value="all">Semua status</option><option value="TERDAFTAR">Aktif</option><option value="BELUM_TERDAFTAR">Belum Terdaftar</option><option value="DI-RESET">Di-Reset</option></select></div></div><div class="table-wrap"><table><thead><tr><th>SISWA</th><th>ID SISWA</th><th>STATUS DEVICE</th><th>TERDAFTAR SEJAK</th><th>AKSI</th></tr></thead><tbody id="device-body"></tbody></table><div id="device-empty" class="empty-state" hidden><div>⚙</div><b>Data device tidak ditemukan</b><span>Coba ubah pencarian atau filter.</span></div></div><div class="table-footer"><span>Menampilkan <b id="device-showing">0</b> dari <b id="device-total">0</b> siswa</span><span class="privacy-note">Binding dan audit reset disimpan di backend.</span></div></div>
+        </section>
+
+        <section id="branch-barcode-view" class="view">
+          <div class="page-intro dashboard-intro"><div><p class="eyebrow">ADMINISTRASI CABANG</p><h1>Barcode Cabang</h1><p class="subcopy">Buat dan cetak barcode QR untuk ditempel di setiap lokasi cabang.</p></div><div class="dashboard-actions"><button class="outline-button" id="refresh-branch-barcode">↻ Segarkan</button><button class="primary-button" id="print-all-branch-barcode">▣ Cetak semua</button></div></div>
+          <div class="device-notice"><span class="info-icon">i</span><div><b>Gunakan satu barcode untuk setiap cabang</b><p>Barcode hanya berisi ID cabang, bukan data siswa. Siswa memindainya saat datang dan pulang.</p></div></div>
+          <div class="branch-barcode-grid" id="branch-barcode-grid"></div>
         </section>
       </main>
     </div>

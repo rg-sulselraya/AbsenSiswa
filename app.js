@@ -46,6 +46,7 @@ let deviceResetLog = loadJson(RESET_LOG_KEY, []);
 let staffSession = loadJson(STAFF_SESSION_KEY, null);
 let authRole = studentSession ? 'student' : staffSession?.role || null;
 let pendingDeliveredId = null;
+let pendingDeliveredType = null;
 let pendingBindStudent = null;
 let pendingResetStudentId = null;
 let cameraStream = null;
@@ -103,7 +104,10 @@ function deviceSessionValid(studentId) { const binding = bindingFor(studentId); 
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
 function todayRecord(studentId) { const record = records[`${dateKey()}::${studentId}`] || null; return record?.branchId ? record : null; }
-function allRows() { return students.map((student) => ({ student, record: todayRecord(student.id), wa: waStatuses[`${dateKey()}::${student.id}`] || { status: 'unprocessed' } })); }
+function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank } }; if (value.arrival || value.departure) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank } }; }
+function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : 'arrival']; }
+function saveWaStatus(key, type, value) { const current = normalizeWaStatus(waStatuses[key]); current[type === 'departure' ? 'departure' : 'arrival'] = { ...current[type === 'departure' ? 'departure' : 'arrival'], ...value }; waStatuses[key] = current; return current[type === 'departure' ? 'departure' : 'arrival']; }
+function allRows() { return students.map((student) => { const key = `${dateKey()}::${student.id}`; return { student, record: todayRecord(student.id), wa: normalizeWaStatus(waStatuses[key]) }; }); }
 function branchById(id) { return branches.find((branch) => branch.id.toUpperCase() === String(id).trim().toUpperCase() && branch.status !== 'Nonaktif'); }
 function currentStudent() { return studentSession ? students.find((student) => student.id === studentSession.id) || studentSession : null; }
 
@@ -135,6 +139,19 @@ async function loadDeviceBindings() {
     const data = await response.json();
     if (data.bindings && typeof data.bindings === 'object') deviceBindings = data.bindings;
   } catch { showToast('Mode binding lokal aktif — hubungkan endpoint device binding untuk validasi server.', 'warn'); }
+}
+
+async function loadWaStatuses() {
+  if (!API_BASE) return;
+  try {
+    const response = await fetch(apiUrl('wa-status')); if (!response.ok) return;
+    const data = await response.json();
+    (data.entries || []).forEach((entry) => {
+      const date = String(entry.Tanggal || entry.date || '').slice(0, 10); const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim(); if (!date || !studentId) return;
+      const type = entry['Jenis WA'] || entry.messageType || 'arrival'; const status = entry['Status WA'] || entry.status || 'unprocessed';
+      saveWaStatus(`${date}::${studentId}`, type, { studentId, status, processedAt: entry['Waktu Diproses'] || entry.processedAt || '', deliveredAt: entry['Waktu Terkirim'] || entry.deliveredAt || '' });
+    });
+  } catch { /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }
 }
 
 async function serverDeviceCheck(student, token) {
@@ -251,15 +268,16 @@ function renderDashboard() {
     const matchQuery = !query || student.name.toLowerCase().includes(query) || student.id.toLowerCase().includes(query);
     const matchClass = classValue === 'all' || student.className === classValue;
     const matchAttendance = attendance === 'all' || (attendance === 'present' && record) || (attendance === 'absent' && !record) || (attendance === 'out' && record?.checkOut) || (attendance === 'not-out' && record && !record.checkOut);
-    return matchQuery && matchClass && matchAttendance && (waFilter === 'all' || wa.status === waFilter);
+    const matchWa = waFilter === 'all' || wa.arrival.status === waFilter || wa.departure.status === waFilter;
+    return matchQuery && matchClass && matchAttendance && matchWa;
   });
   $('#table-total').textContent = rows.length; $('#table-showing').textContent = filtered.length;
   const activeFilters = [classValue !== 'all', attendance !== 'all', waFilter !== 'all'].filter(Boolean).length; $('#filter-count').textContent = activeFilters; $('#filter-count').classList.toggle('show', activeFilters > 0);
   $('#attendance-body').innerHTML = filtered.map(({ student, record, wa }) => {
     const attendanceBadge = !record ? '<span class="attendance-badge absent">Belum Hadir</span>' : record.checkOut ? '<span class="attendance-badge present">Sudah Pulang</span>' : '<span class="attendance-badge not-out">Belum Pulang</span>';
-    const waLabel = wa.status === 'delivered' ? '✓ Sudah Terkirim' : wa.status === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses';
-    const waButton = record ? `<button class="wa-action" data-wa="${esc(student.id)}">▣ Send WA</button>` : '<button class="wa-action disabled" disabled>▣ Send WA</button>';
-    return `<tr><td><div class="student-cell"><span class="student-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${esc(student.id)}</small></div></div></td><td>${esc(student.className)}</td><td>${esc(record?.branch || student.branch || '—')}</td><td class="time-cell">${record?.checkIn || '<span class="dash">—</span>'}</td><td class="time-cell">${record?.checkOut || '<span class="dash">—</span>'}</td><td>${attendanceBadge}</td><td><button class="wa-badge ${wa.status}" data-status-id="${esc(student.id)}">${waLabel}</button></td><td>${waButton}</td></tr>`;
+    const waLabel = (type, label, available) => { const status = wa[type].status; const text = status === 'delivered' ? '✓ Sudah Terkirim' : status === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses'; const disabled = !available ? ' disabled' : ''; return `<button class="wa-badge ${status}${disabled}" data-status-id="${esc(student.id)}" data-status-type="${type}"${disabled}>${label}: ${text}</button>`; };
+    const waButton = `<div class="wa-actions"><button class="wa-action${record ? '' : ' disabled'}" data-wa="${esc(student.id)}" data-wa-type="arrival"${record ? '' : ' disabled'}>▣ Datang</button><button class="wa-action${record?.checkOut ? '' : ' disabled'}" data-wa="${esc(student.id)}" data-wa-type="departure"${record?.checkOut ? '' : ' disabled'}>▣ Pulang</button></div>`;
+    return `<tr><td><div class="student-cell"><span class="student-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${esc(student.id)}</small></div></div></td><td>${esc(student.className)}</td><td>${esc(record?.branch || student.branch || '—')}</td><td class="time-cell">${record?.checkIn || '<span class="dash">—</span>'}</td><td class="time-cell">${record?.checkOut || '<span class="dash">—</span>'}</td><td>${attendanceBadge}</td><td><div class="wa-status-group">${waLabel('arrival', 'Datang', Boolean(record))}${waLabel('departure', 'Pulang', Boolean(record?.checkOut))}</div></td><td>${waButton}</td></tr>`;
   }).join('');
   $('#empty-state').hidden = filtered.length !== 0;
 }
@@ -384,21 +402,21 @@ async function loginStudent() {
 
 function logoutStudent() { studentSession = null; authRole = null; persist(); stopCamera(); renderProfileIdentity(); $('#scan-result').className = 'scan-result'; setView('login'); showToast('Anda telah keluar dari akun siswa.'); }
 
-function sendWA(studentId) {
-  const row = allRows().find(({ student }) => student.id === studentId); if (!row?.record) return;
+function sendWA(studentId, type = 'arrival') {
+  const row = allRows().find(({ student }) => student.id === studentId); if (!row?.record || (type === 'departure' && !row.record.checkOut)) return;
   const { student, record } = row;
-  const message = record.checkOut ? `Halo Ayah/Bunda ${student.name}, kami informasikan bahwa ${student.name} telah mengikuti pembelajaran hari ini. Jam datang: ${record.checkIn}. Jam pulang: ${record.checkOut}. Terima kasih.` : `Halo Ayah/Bunda ${student.name}, kami informasikan bahwa ${student.name} telah hadir mengikuti pembelajaran hari ini pada pukul ${record.checkIn}.`;
+  const message = type === 'departure' ? `Halo Ayah/Bunda ${student.name}, kami informasikan bahwa ${student.name} telah mengikuti pembelajaran hari ini. Jam datang: ${record.checkIn}. Jam pulang: ${record.checkOut}. Terima kasih.` : `Halo Ayah/Bunda ${student.name}, kami informasikan bahwa ${student.name} telah hadir mengikuti pembelajaran hari ini pada pukul ${record.checkIn}.`;
   const phone = String(student.parentPhone || '').replace(/\D/g, '');
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
-  waStatuses[key] = { status: 'processed', processedAt: new Date().toISOString(), studentId: student.id }; persist();
-  if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: student.id, status: 'processed', processedAt: waStatuses[key].processedAt }) }).catch(() => {});
+  const processedAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'processed', processedAt, studentId: student.id }); persist();
+  if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: student.id, messageType: type, status: 'processed', processedAt }) }).catch(() => {});
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
-  showToast(`WhatsApp untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard();
+  showToast(`WhatsApp ${type === 'departure' ? 'pulang' : 'datang'} untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard();
 }
 
-function openConfirm(studentId) { pendingDeliveredId = studentId; $('#confirm-modal').hidden = false; }
-function confirmDelivered() { if (!pendingDeliveredId) return; const key = `${dateKey()}::${pendingDeliveredId}`; waStatuses[key] = { ...(waStatuses[key] || {}), status: 'delivered', deliveredAt: new Date().toISOString(), studentId: pendingDeliveredId }; persist(); if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, status: 'delivered', deliveredAt: waStatuses[key].deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; renderDashboard(); showToast('Status diubah menjadi Sudah Terkirim.'); }
+function openConfirm(studentId, type = 'arrival') { pendingDeliveredId = studentId; pendingDeliveredType = type; $('#confirm-modal').querySelector('p').innerHTML = `Tandai pesan WhatsApp ${type === 'departure' ? 'jam pulang' : 'jam datang'} sebagai sudah terkirim setelah Anda memastikan pesan telah dikirim.`; $('#confirm-modal').hidden = false; }
+function confirmDelivered() { if (!pendingDeliveredId || !pendingDeliveredType) return; const key = `${dateKey()}::${pendingDeliveredId}`; const type = pendingDeliveredType; const deliveredAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'delivered', deliveredAt, studentId: pendingDeliveredId }); persist(); if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, messageType: type, status: 'delivered', deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; renderDashboard(); showToast(`Status WA ${type === 'departure' ? 'pulang' : 'datang'} diubah menjadi Sudah Terkirim.`); }
 
 async function activateCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return showToast('Kamera tidak tersedia di browser ini. Gunakan input ID manual.', 'warn');
@@ -423,8 +441,8 @@ document.addEventListener('click', (event) => {
   const nav = event.target.closest('[data-view]'); if (nav) setView(nav.dataset.view);
   const role = event.target.closest('[data-role]'); if (role) { $$('.role-tab').forEach((tab) => tab.classList.toggle('active', tab === role)); const studentRole = role.dataset.role === 'student'; const teacherRole = role.dataset.role === 'teacher'; $('#student-login-panel').hidden = !studentRole; $('#teacher-login-panel').hidden = !teacherRole; }
   const resetDevice = event.target.closest('[data-reset-device]'); if (resetDevice) openResetDevice(resetDevice.dataset.resetDevice);
-  const wa = event.target.closest('[data-wa]'); if (wa) sendWA(wa.dataset.wa);
-  const status = event.target.closest('[data-status-id]'); if (status && waStatuses[`${dateKey()}::${status.dataset.statusId}`]?.status === 'processed') openConfirm(status.dataset.statusId);
+  const wa = event.target.closest('[data-wa]'); if (wa && !wa.disabled) sendWA(wa.dataset.wa, wa.dataset.waType);
+  const status = event.target.closest('[data-status-id]'); if (status && !status.disabled && waStatusFor(`${dateKey()}::${status.dataset.statusId}`, status.dataset.statusType).status === 'processed') openConfirm(status.dataset.statusId, status.dataset.statusType);
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
 $('#student-login-submit').addEventListener('click', loginStudent);
@@ -441,10 +459,10 @@ $('#filter-toggle').addEventListener('click', () => $('#filter-row').classList.t
 $('#reset-filter').addEventListener('click', () => { $('#class-filter').value = 'all'; $('#attendance-filter').value = 'all'; $('#wa-filter').value = 'all'; $('#search-input').value = ''; renderDashboard(); });
 $('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', () => { renderDeviceManagement(); showToast('Daftar device berhasil disegarkan.'); });
 $('#refresh-button').addEventListener('click', () => { renderAll(); showToast('Rekap berhasil disegarkan.'); });
-$('#export-button').addEventListener('click', () => { const rows = allRows(); const csv = [['Siswa', 'ID', 'Kelas', 'ID Cabang', 'Cabang', 'Jam Datang', 'Jam Pulang', 'Status', 'Status WA'], ...rows.map(({ student, record, wa }) => [student.name, student.id, student.className, record?.branchId || student.branchId || '', record?.branch || student.branch || '', record?.checkIn || '', record?.checkOut || '', record ? (record.checkOut ? 'Hadir' : 'Belum Pulang') : 'Belum Hadir', wa.status])].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `rekap-presensi-${dateKey()}.csv`; link.click(); URL.revokeObjectURL(link.href); showToast('Rekap CSV berhasil diunduh.'); });
-$('#modal-cancel').addEventListener('click', () => { $('#confirm-modal').hidden = true; pendingDeliveredId = null; }); $('#modal-confirm').addEventListener('click', confirmDelivered);
+$('#export-button').addEventListener('click', () => { const rows = allRows(); const csv = [['Siswa', 'ID', 'Kelas', 'ID Cabang', 'Cabang', 'Jam Datang', 'Jam Pulang', 'Status', 'Status WA Datang', 'Status WA Pulang'], ...rows.map(({ student, record, wa }) => [student.name, student.id, student.className, record?.branchId || student.branchId || '', record?.branch || student.branch || '', record?.checkIn || '', record?.checkOut || '', record ? (record.checkOut ? 'Hadir' : 'Belum Pulang') : 'Belum Hadir', wa.arrival.status, wa.departure.status])].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `rekap-presensi-${dateKey()}.csv`; link.click(); URL.revokeObjectURL(link.href); showToast('Rekap CSV berhasil diunduh.'); });
+$('#modal-cancel').addEventListener('click', () => { $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; }); $('#modal-confirm').addEventListener('click', confirmDelivered);
 window.addEventListener('beforeunload', stopCamera);
 
 $('#display-date').textContent = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
-Promise.all([loadStudents(), loadBranches(), loadDeviceBindings()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); resumeStudentSession(); });
+Promise.all([loadStudents(), loadBranches(), loadDeviceBindings(), loadWaStatuses()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); resumeStudentSession(); });
 renderProfileIdentity();

@@ -42,6 +42,7 @@ function handle_(e, method) {
       if (route === 'branches') return json_({ branches: branches_() }, e);
       if (route === 'device-bindings') return json_({ bindings: publicBindings_() }, e);
       if (route === 'device-reset-log') return json_({ entries: rows_(sheet_(SHEETS.resetLog)) }, e);
+      if (route === 'wa-status') return json_({ entries: rows_(sheet_(SHEETS.wa)) }, e);
     }
     const payload = body_(e);
     if (method === 'POST') {
@@ -132,7 +133,7 @@ function setupSheets_() {
   definitions[SHEETS.branches] = ['ID Cabang', 'Nama Cabang', 'Status'];
   definitions[SHEETS.studentBranches] = ['ID Siswa', 'Nama Siswa', 'ID Cabang', 'Nama Cabang'];
   definitions[SHEETS.attendance] = ['Tanggal', 'ID Siswa', 'Nama Siswa', 'Kelas', 'ID Cabang', 'Cabang', 'Jam Datang', 'Jam Pulang', 'Status'];
-  definitions[SHEETS.wa] = ['Tanggal', 'ID Siswa', 'Status WA', 'Waktu Diproses', 'Waktu Terkirim'];
+  definitions[SHEETS.wa] = ['Tanggal', 'ID Siswa', 'Status WA', 'Waktu Diproses', 'Waktu Terkirim', 'Jenis WA'];
   definitions[SHEETS.bindings] = ['ID Siswa', 'Nama Siswa', 'Device Token', 'Status', 'Tanggal Bind', 'Tanggal Reset', 'Updated At'];
   definitions[SHEETS.resetLog] = ['ID', 'ID Siswa', 'Nama Siswa', 'Waktu Reset', 'Admin', 'Alasan', 'Status', 'Device Token'];
   const book = book_(); Object.keys(definitions).forEach(name => { let sheet = book.getSheetByName(name); if (!sheet) sheet = book.insertSheet(name); if (sheet.getLastRow() === 0) sheet.getRange(1, 1, 1, definitions[name].length).setValues([definitions[name]]); });
@@ -164,4 +165,4 @@ function staffValidate_(e) { const role = session_(e); return role ? json_({ suc
 function bindingReset_(e, payload) { const role = session_(e); if (role !== 'teacher' && role !== 'admin') return json_({ message: 'Hanya Student Mentor yang dapat melakukan Reset Device.' }, null, 403); const current = binding_(payload.studentId); if (!current) return json_({ message: 'Binding siswa tidak ditemukan.' }, null, 404); const now = new Date(); const bindingSheet = sheet_(SHEETS.bindings); writeRow_(bindingSheet, bindingRows_().indexOf(current) + 2, [current['ID Siswa'], current['Nama Siswa'], '', 'DI-RESET', current['Tanggal Bind'], now, now]); sheet_(SHEETS.resetLog).appendRow(['RESET-' + Date.now(), current['ID Siswa'], current['Nama Siswa'], now, 'Student Mentor', payload.reason || 'Reset Device', 'DI-RESET', current['Device Token']]); return json_({ status: 'DI-RESET' }); }
 
 function attendance_(payload) { const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet); const index = data.findIndex(row => String(row['Tanggal']) === String(payload.date) && String(row['ID Siswa']) === String(payload.studentId)); const values = [payload.date || dateKey_(), payload.studentId || '', payload.name || '', payload.className || '', payload.branchId || '', payload.branch || '', payload.checkIn || '', payload.checkOut || '', payload.status || 'Belum Pulang']; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true }); }
-function waStatus_(payload) { const sheet = sheet_(SHEETS.wa); const data = rows_(sheet); const index = data.findIndex(row => String(row['Tanggal']) === String(payload.date) && String(row['ID Siswa']) === String(payload.studentId)); const values = [payload.date || dateKey_(), payload.studentId || '', payload.status || 'processed', payload.processedAt || '', payload.deliveredAt || '']; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true }); }
+function waStatus_(payload) { const sheet = sheet_(SHEETS.wa); const type = payload.messageType === 'departure' ? 'departure' : 'arrival'; const lastColumn = sheet.getLastColumn(); const headers = headerMap_(sheet); if (headers['jenis wa'] === undefined) sheet.getRange(1, lastColumn + 1).setValue('Jenis WA'); const data = rows_(sheet); const index = data.findIndex(row => String(row['Tanggal']) === String(payload.date) && String(row['ID Siswa']) === String(payload.studentId) && String(row['Jenis WA'] || 'arrival') === type); const values = [payload.date || dateKey_(), payload.studentId || '', payload.status || 'processed', payload.processedAt || '', payload.deliveredAt || '', type]; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true }); }

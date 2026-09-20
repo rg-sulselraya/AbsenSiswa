@@ -71,3 +71,4 @@ html,body{max-width:100%;overflow-x:hidden}
 .login-card{width:min(390px,100%)}
 @media(max-width:760px){.login-layout{display:block}}
 @media (min-width:761px) and (max-width:900px){.login-layout{display:block;min-height:auto;max-width:540px;padding-top:10px}}
+.wa-status-group{display:grid;gap:4px;min-width:132px}.wa-status-group .wa-badge{text-align:left}.wa-badge.disabled{cursor:default;opacity:.65}.wa-actions{display:grid;gap:3px;min-width:82px}.wa-actions .wa-action{padding:4px 0;text-align:left}.wa-action:disabled{cursor:not-allowed}

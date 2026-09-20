@@ -20,6 +20,8 @@ Folder ini berisi backend yang membaca dan menulis Google Sheets tanpa menyimpan
 Sheet `Database Siswa` dibaca tanpa mengubah data. Sheet tambahan yang dibuat:
 `Database Cabang`, `Siswa Cabang`, `Presensi`, `StatusWA`, `Device Binding`, dan `Device Reset Log`.
 
+Sheet `StatusWA` menyimpan status pesan secara terpisah untuk `arrival` (jam datang) dan `departure` (jam pulang). Kolomnya: `Tanggal, ID Siswa, Status WA, Waktu Diproses, Waktu Terkirim, Jenis WA`.
+
 ## Menghubungkan ke GitHub Pages
 
 Di repository GitHub, buka **Settings → Secrets and variables → Actions → Variables**, buat variable:

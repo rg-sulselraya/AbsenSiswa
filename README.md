@@ -24,7 +24,8 @@ Frontend mengharapkan endpoint berikut:
 - `GET /students` → `{ "students": [{ "id", "name", "className", "branch", "grade", "parentPhone" }] }`
 - `GET /branches` → `{ "branches": [{ "id", "name", "status" }] }`
 - `POST /attendance` → menerima `{ date, studentId, name, className, branchId, branch, checkIn, checkOut, status }`
-- `POST /wa-status` → menerima `{ date, studentId, status, processedAt?, deliveredAt? }`
+- `GET /wa-status` → membaca status WA per siswa dan jenis pesan.
+- `POST /wa-status` → menerima `{ date, studentId, messageType: "arrival"|"departure", status, processedAt?, deliveredAt? }`
 - `GET /device-bindings` → data status binding tanpa mengembalikan token ke UI.
 - `POST /device-binding/check` → validasi `studentId` + `deviceToken` terhadap binding server.
 - `POST /device-binding/bind` → membuat binding pertama setelah konfirmasi siswa.
@@ -34,7 +35,7 @@ Reference backend minimal tersedia di [server.mjs](/Users/fa-13744/Documents/Cha
 Jika `PRESENSI_ADMIN_TOKEN` diisi pada backend reference, endpoint reset juga menolak request tanpa header Admin. Pada produksi, gunakan session/role Admin yang sudah ada, bukan token frontend.
 Login Student Mentor sengaja tidak memiliki fallback frontend. Tanpa endpoint backend yang dikonfigurasi, pemilihan tab staf akan ditolak agar siswa tidak bisa menaikkan role dari browser. Role Admin lama tetap dikenali backend untuk kompatibilitas, tetapi tidak lagi ditampilkan sebagai pilihan login terpisah.
 
-Spreadsheet yang diberikan telah dicek read-only. Sheet `Database Siswa` memiliki header `User Serial`, `Nama Siswa`, `No Ortu`, `Nama Sekolah`, `Grade`, dan `Kelas`. Mapping backend: `User Serial → id`, `Nama Siswa → name`, `No Ortu → parentPhone`, `Grade → grade`, `Kelas → className`. Karena sheet existing belum memuat ID cabang, backend perlu menambahkan mapping akses (atau sheet master cabang) tanpa mengubah data siswa. Jangan mengubah sheet siswa existing. Jika diperlukan, gunakan sheet tambahan `Presensi` dengan kolom `Tanggal, ID Siswa, Nama Siswa, Kelas, ID Cabang, Cabang, Jam Datang, Jam Pulang, Status`, `Database Cabang` dengan kolom `ID Cabang, Nama Cabang, Status`, dan sheet `StatusWA` dengan kolom `Tanggal, ID Siswa, Status WA, Waktu Diproses, Waktu Terkirim`.
+Spreadsheet yang diberikan telah dicek read-only. Sheet `Database Siswa` memiliki header `User Serial`, `Nama Siswa`, `No Ortu`, `Nama Sekolah`, `Grade`, dan `Kelas`. Mapping backend: `User Serial → id`, `Nama Siswa → name`, `No Ortu → parentPhone`, `Grade → grade`, `Kelas → className`. Karena sheet existing belum memuat ID cabang, backend perlu menambahkan mapping akses (atau sheet master cabang) tanpa mengubah data siswa. Jangan mengubah sheet siswa existing. Jika diperlukan, gunakan sheet tambahan `Presensi` dengan kolom `Tanggal, ID Siswa, Nama Siswa, Kelas, ID Cabang, Cabang, Jam Datang, Jam Pulang, Status`, `Database Cabang` dengan kolom `ID Cabang, Nama Cabang, Status`, dan sheet `StatusWA` dengan kolom `Tanggal, ID Siswa, Status WA, Waktu Diproses, Waktu Terkirim, Jenis WA`. `Jenis WA` membedakan pesan `arrival` (jam datang) dan `departure` (jam pulang); baris lama tanpa jenis dianggap sebagai pesan jam datang.
 
 Untuk Google Sheets produksi, tambahkan sheet non-destruktif `Device Binding` (`ID Siswa, Nama Siswa, Device Token, Status, Tanggal Bind, Tanggal Reset, Updated At`) dan `Device Reset Log` (`ID, ID Siswa, Nama Siswa, Waktu Reset, Admin, Alasan, Status`). Token tidak pernah dikirim kembali ke browser admin sebagai nilai mentah.
 

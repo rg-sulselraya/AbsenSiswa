@@ -55,6 +55,8 @@ let cameraTimer = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+function setProcessing(visible, title = 'Sedang memproses...', copy = 'Mohon tunggu sebentar.') { const overlay = $('#processing-overlay'); if (!overlay) return; overlay.hidden = !visible; $('#processing-title').textContent = title; $('#processing-copy').textContent = copy; }
+async function runWithProcessing(button, task, title = 'Sedang memproses...') { if (button?.disabled) return; const original = button?.innerHTML; if (button) { button.disabled = true; button.classList.add('is-loading'); button.innerHTML = `<span class="button-spinner" aria-hidden="true"></span>${title}`; } setProcessing(true, title); try { return await task(); } finally { if (button) { button.disabled = false; button.classList.remove('is-loading'); button.innerHTML = original; } setProcessing(false); } }
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 const nowTime = () => new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Makassar' }).format(new Date());
 const initials = (name) => name.split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase();
@@ -498,16 +500,16 @@ document.addEventListener('click', (event) => {
   const profileLogout = event.target.closest('#profile-logout'); if (profileLogout) return logoutCurrentAccount();
   const studentResult = event.target.closest('[data-student-id]'); if (studentResult) chooseStudent(studentResult.dataset.studentId);
   if (!event.target.closest('.student-picker')) { const results = $('#student-results'); if (results) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); } }
-  const nav = event.target.closest('[data-view]'); if (nav) setView(nav.dataset.view);
+  const nav = event.target.closest('[data-view]'); if (nav) { if (nav.dataset.view === 'dashboard' && ['teacher', 'admin'].includes(authRole)) { setProcessing(true, 'Sedang memproses...', 'Menyiapkan Dashboard Student Mentor.'); setTimeout(() => { setView('dashboard'); setProcessing(false); }, 350); } else setView(nav.dataset.view); }
   const role = event.target.closest('[data-role]'); if (role) { $$('.role-tab').forEach((tab) => tab.classList.toggle('active', tab === role)); const studentRole = role.dataset.role === 'student'; const teacherRole = role.dataset.role === 'teacher'; $('#student-login-panel').hidden = !studentRole; $('#teacher-login-panel').hidden = !teacherRole; }
   const resetDevice = event.target.closest('[data-reset-device]'); if (resetDevice) openResetDevice(resetDevice.dataset.resetDevice);
   const wa = event.target.closest('[data-wa]'); if (wa && !wa.disabled) sendWA(wa.dataset.wa, wa.dataset.waType);
   const status = event.target.closest('[data-status-id]'); if (status && !status.disabled && waStatusFor(`${dateKey()}::${status.dataset.statusId}`, status.dataset.statusType).status === 'processed') openConfirm(status.dataset.statusId, status.dataset.statusType);
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
-$('#student-login-submit').addEventListener('click', loginStudent);
+$('#student-login-submit').addEventListener('click', () => runWithProcessing($('#student-login-submit'), loginStudent, 'Sedang memproses...'));
 $('#student-search').addEventListener('input', () => { $('#student-account').value = ''; $('#student-password').value = ''; $('#student-password').disabled = true; populateStudentAccounts(); });
-$('#teacher-login-submit').addEventListener('click', () => loginStaff('teacher', $('#teacher-password').value));
+$('#teacher-login-submit').addEventListener('click', () => runWithProcessing($('#teacher-login-submit'), () => loginStaff('teacher', $('#teacher-password').value), 'Sedang membuka dashboard...'));
 $('#profile-photo-input').addEventListener('change', (event) => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) return showToast('Pilih file foto yang valid.', 'warn'); if (file.size > 2 * 1024 * 1024) return showToast('Ukuran foto maksimal 2 MB.', 'warn'); const reader = new FileReader(); reader.onload = () => { localStorage.setItem(PROFILE_PHOTO_KEY, String(reader.result)); renderProfileIdentity(); closeProfileMenu(); showToast('Foto profil berhasil diperbarui.'); }; reader.readAsDataURL(file); event.target.value = ''; });
 $('#logout-button').addEventListener('click', logoutStudent);
 $('#bind-cancel').addEventListener('click', cancelBind); $('#bind-confirm').addEventListener('click', () => { if (pendingBindStudent) bindDevice(pendingBindStudent); });

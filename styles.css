@@ -86,3 +86,18 @@ html,body{max-width:100%;overflow-x:hidden}
 @media(max-width:760px){.login-layout{display:block}}
 @media (min-width:761px) and (max-width:900px){.login-layout{display:block;min-height:auto;max-width:540px;padding-top:10px}}
 .wa-status-group{display:grid;gap:4px;min-width:132px}.wa-status-group .wa-badge{text-align:left}.wa-badge.disabled{cursor:default;opacity:.65}.wa-actions{display:grid;gap:3px;min-width:82px}.wa-actions .wa-action{padding:4px 0;text-align:left}.wa-action:disabled{cursor:not-allowed}
+
+/* Readable login typography on phones. */
+@media(max-width:760px){
+  .login-card label{font-size:13px}
+  .login-card .role-tab{font-size:13px;height:38px}
+  .login-card .login-brand b{font-size:18px}
+  .login-card .login-brand small{font-size:11px}
+  .student-search,.student-password,.staff-password,.login-card select{height:44px;font-size:14px}
+  .student-result b{font-size:13px}
+  .student-result small,.student-result-empty{font-size:12px}
+  .login-card .input-hint{font-size:12px;line-height:1.4}
+  .login-card .login-submit{height:44px;font-size:13px}
+  .login-card .login-note{font-size:12px}
+  .login-card .security-note{font-size:11px;line-height:1.4}
+}

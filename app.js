@@ -8,7 +8,7 @@
 // configurations. Keep both deployment modes supported: a static host can
 // provide window.__ATTENDANCE_API_URL__, while Vite injects its build-time
 // VITE_ATTENDANCE_API_URL value for production builds.
-const DEFAULT_API_BASE = 'https://script.google.com/macros/s/AKfycbx8oLYlk6BajC8DZtavbHlaelZ0NVETLYJ9Fh3u_G3tItwbvuzQr96IL-ZEZjltjWwVxw/exec';
+const DEFAULT_API_BASE = 'https://script.google.com/macros/s/AKfycbze3U9LkJK-Z_JvJRyOzrA47G44Asc4hRAvdhbg7LznIIW7c8D8El2HjV-h0qv7Y4EIwA/exec';
 const API_BASE = globalThis.__ATTENDANCE_API_URL__ || import.meta.env?.VITE_ATTENDANCE_API_URL || DEFAULT_API_BASE;
 const STORAGE_KEY = 'ruang-kelas-attendance-v1';
 const WA_KEY = 'ruang-kelas-wa-v1';

@@ -17,12 +17,13 @@ Backend yang direkomendasikan adalah Google Apps Script. Panduan lengkap dan kod
 
 Buat backend (atau serverless functions) yang membaca spreadsheet `17xq9XNJchMRE57MMNSYok_jr9uXjZAGKXpzoI1kYroE` menggunakan service account dari environment variable. Credential tidak boleh masuk ke `app.js` atau bundle frontend.
 
-Flow frontend: login akun siswa → scan QR cabang (`CABANG-001`) → validasi cabang siswa → scan pertama mengisi Jam Datang → scan kedua mengisi Jam Pulang pada record yang sama. Student Mentor membuka dashboard dan Manajemen Device; akses Student Mentor mencakup fungsi administrasi yang sebelumnya terpisah dari Admin.
+Flow frontend: pilih nama siswa → validasi password siswa di backend → validasi Device Binding → scan QR cabang (`CABANG-001`) → scan pertama mengisi Jam Datang → scan kedua mengisi Jam Pulang pada record yang sama. Student Mentor membuka dashboard dan Manajemen Device; akses Student Mentor mencakup fungsi administrasi yang sebelumnya terpisah dari Admin.
 
 Frontend mengharapkan endpoint berikut:
 
 - `GET /students` → `{ "students": [{ "id", "name", "className", "branch", "grade", "parentPhone" }] }`
 - `GET /branches` → `{ "branches": [{ "id", "name", "status" }] }`
+- `POST /student/login` → menerima `{ studentId, password }` dan mengembalikan `{ success, authenticated, student: { id } }`; backend membaca hash password dari sheet dan tidak mengirimkannya ke browser.
 - `POST /attendance` → menerima `{ date, studentId, name, className, branchId, branch, checkIn, checkOut, status }`
 - `GET /wa-status` → membaca status WA per siswa dan jenis pesan.
 - `POST /wa-status` → menerima `{ date, studentId, messageType: "arrival"|"departure", status, processedAt?, deliveredAt? }`

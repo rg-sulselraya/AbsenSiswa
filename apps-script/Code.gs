@@ -47,6 +47,7 @@ function handle_(e, method) {
     const payload = body_(e);
     if (method === 'POST') {
       if (route === 'staff/login') return staffLogin_(payload);
+      if (route === 'student/login') return studentLogin_(payload);
       if (route === 'staff/validate') return staffValidate_(e);
       if (route === 'device-binding/check') return bindingCheck_(payload);
       if (route === 'device-binding/bind') return bindingBind_(payload);
@@ -106,6 +107,10 @@ function value_(row, map, ...names) {
   for (const name of names) { const index = map[String(name).toLowerCase()]; if (index !== undefined) return row[index]; }
   return '';
 }
+function sha256_(value) {
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, String(value), Utilities.Charset.UTF_8);
+  return bytes.map(byte => (byte < 0 ? byte + 256 : byte).toString(16).padStart(2, '0')).join('');
+}
 function iso_(value) { return value instanceof Date ? value.toISOString() : value ? String(value) : ''; }
 function dateKey_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd'); }
 
@@ -121,6 +126,47 @@ function students_() {
     const id = String(value_(row, map, 'User Serial', 'ID Siswa', 'id') || '').trim(); const branch = branchMap[id] || {};
     return { id, name: String(value_(row, map, 'Nama Siswa', 'name') || '').trim(), parentPhone: String(value_(row, map, 'No Ortu', 'Nomor WhatsApp', 'parentPhone') || '').trim(), grade: String(value_(row, map, 'Grade', 'grade') || '').trim(), className: String(value_(row, map, 'Kelas', 'className') || '').trim(), branchId: branch.branchId || String(value_(row, map, 'ID Cabang', 'branchId') || '').trim(), branch: branch.branch || String(value_(row, map, 'Cabang', 'branch') || '').trim() };
   }).filter(student => student.id && student.name);
+}
+
+function studentLogin_(payload) {
+  const studentId = String(payload.studentId || '').trim();
+  const password = String(payload.password || '');
+  if (!studentId || !password) return json_({ success: false, authenticated: false, code: 'STUDENT_PASSWORD_REQUIRED', message: 'Password siswa wajib diisi.' }, null, 400);
+  const source = sheet_(SHEETS.students); const values = source.getDataRange().getValues(); const map = headerMap_(source);
+  const row = values.slice(1).find(item => String(value_(item, map, 'User Serial', 'ID Siswa', 'id') || '').trim() === studentId);
+  if (!row) return json_({ success: false, authenticated: false, code: 'STUDENT_AUTH_FAILED', message: 'Password siswa salah.' }, null, 401);
+  const storedHash = String(value_(row, map, 'PIN Hash', 'Password Hash', 'Password Siswa Hash', 'Kata Sandi Hash') || '').trim().toLowerCase();
+  const salt = String(value_(row, map, 'Password Salt', 'Student Password Salt') || '').trim();
+  if (!storedHash) {
+    console.warn('[STUDENT AUTH] Password hash is not configured for student: ' + studentId);
+    return json_({ success: false, authenticated: false, code: 'STUDENT_PASSWORD_NOT_CONFIGURED', message: 'Password siswa belum dikonfigurasi.' }, null, 503);
+  }
+  const candidateHash = salt ? sha256_(salt + ':' + password) : sha256_(password);
+  if (candidateHash !== storedHash) return json_({ success: false, authenticated: false, code: 'STUDENT_AUTH_FAILED', message: 'Password siswa salah.' }, null, 401);
+  return json_({ success: true, authenticated: true, student: { id: studentId } });
+}
+
+function ensureColumn_(sheet, name) {
+  const map = headerMap_(sheet); const key = String(name).trim().toLowerCase();
+  if (map[key] !== undefined) return map[key] + 1;
+  const column = Math.max(sheet.getLastColumn(), 1) + 1; sheet.getRange(1, column).setValue(name); return column;
+}
+
+function setupStudentPasswordColumns() {
+  const sheet = sheet_(SHEETS.students); ensureColumn_(sheet, 'Password Hash'); ensureColumn_(sheet, 'Password Salt');
+}
+
+/** Run manually from the Apps Script editor for each student; the raw password is never stored. */
+function setStudentPassword(studentId, password) {
+  const id = String(studentId || '').trim(); const value = String(password || '');
+  if (!id || !value) throw new Error('studentId dan password wajib diisi.');
+  const sheet = sheet_(SHEETS.students); const values = sheet.getDataRange().getValues(); const map = headerMap_(sheet);
+  const idColumn = map['user serial'] !== undefined ? map['user serial'] : map['id siswa'];
+  if (idColumn === undefined) throw new Error('Kolom User Serial/ID Siswa tidak ditemukan.');
+  const rowIndex = values.slice(1).findIndex(row => String(row[idColumn]).trim() === id);
+  if (rowIndex < 0) throw new Error('Siswa tidak ditemukan.');
+  const hashColumn = ensureColumn_(sheet, 'Password Hash'); const saltColumn = ensureColumn_(sheet, 'Password Salt'); const salt = Utilities.getUuid();
+  sheet.getRange(rowIndex + 2, hashColumn).setValue(sha256_(salt + ':' + value)); sheet.getRange(rowIndex + 2, saltColumn).setValue(salt);
 }
 
 function branches_() {

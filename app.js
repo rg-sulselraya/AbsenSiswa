@@ -100,6 +100,14 @@ function authErrorMessage(code, role = 'teacher') {
   if (code === 'AUTH_INVALID_RESPONSE') return 'Response server autentifikasi tidak valid.';
   return 'Server autentifikasi staf tidak tersedia. Silakan coba lagi.';
 }
+function studentAuthErrorMessage(code) {
+  if (code === 'STUDENT_PASSWORD_REQUIRED') return 'Masukkan password siswa.';
+  if (code === 'STUDENT_AUTH_FAILED') return 'Password siswa salah.';
+  if (code === 'STUDENT_PASSWORD_NOT_CONFIGURED') return 'Password siswa belum dikonfigurasi. Hubungi Student Mentor.';
+  if (code === 'AUTH_TIMEOUT') return 'Server autentifikasi siswa terlalu lama merespons.';
+  if (code === 'AUTH_INVALID_RESPONSE') return 'Response server autentifikasi siswa tidak valid.';
+  return 'Server autentifikasi siswa tidak tersedia. Silakan coba lagi.';
+}
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
@@ -340,6 +348,8 @@ function populateStudentAccounts() {
   const matches = students.filter((student) => !search || `${student.name} ${student.className || ''} ${student.id}`.toLocaleLowerCase('id-ID').includes(search));
   select.innerHTML = '<option value="">Pilih nama siswa</option>' + matches.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} · ${esc(student.className || 'Kelas belum diisi')}</option>`).join('');
   select.value = matches.some((student) => student.id === selected) ? selected : '';
+  const password = $('#student-password');
+  if (password && !select.value) { password.value = ''; password.disabled = true; }
   const results = $('#student-results');
   if (!results) return;
   if (!search) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); return; }
@@ -356,6 +366,8 @@ function chooseStudent(studentId) {
   $('#student-search').value = student.name;
   $('#student-results').hidden = true;
   $('#student-search').setAttribute('aria-expanded', 'false');
+  const password = $('#student-password');
+  if (password) { password.disabled = false; password.focus(); }
 }
 
 function renderSession() {
@@ -381,6 +393,25 @@ async function loginStudent() {
   const student = students.find((item) => item.id === $('#student-account').value);
   if (!student) return showToast('Pilih akun siswa terlebih dahulu.', 'warn');
   if (!student.branchId) return showToast('Cabang siswa belum dipetakan oleh admin.', 'warn');
+  const password = String($('#student-password')?.value || '');
+  if (!password) return showToast('Masukkan password siswa.', 'warn');
+  if (API_BASE) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
+    try {
+      const endpoint = apiUrl('student/login');
+      const response = await fetch(endpoint, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, password }), signal: controller.signal });
+      let data;
+      try { data = await response.json(); } catch { console.warn('[STUDENT AUTH] Invalid JSON response', { endpoint, status: response.status }); return showToast(studentAuthErrorMessage('AUTH_INVALID_RESPONSE'), 'warn'); }
+      console.info('[STUDENT AUTH] Response received', { endpoint, status: response.status, code: data?.code || null });
+      if (!response.ok || data?.success === false || data?.authenticated !== true) return showToast(studentAuthErrorMessage(data?.code || 'STUDENT_AUTH_FAILED'), 'warn');
+    } catch (error) {
+      const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
+      console.warn('[STUDENT AUTH] Request failed', { endpoint: apiUrl('student/login'), code });
+      return showToast(studentAuthErrorMessage(code), 'warn');
+    } finally { clearTimeout(timeout); }
+  }
+  $('#student-password').value = '';
   const token = localStorage.getItem(DEVICE_KEY);
   if (token && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain. Silakan gunakan perangkat yang terdaftar atau hubungi Admin.', 'warn');
   const serverCheck = await serverDeviceCheck(student, token);
@@ -446,7 +477,7 @@ document.addEventListener('click', (event) => {
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
 $('#student-login-submit').addEventListener('click', loginStudent);
-$('#student-search').addEventListener('input', () => { $('#student-account').value = ''; populateStudentAccounts(); });
+$('#student-search').addEventListener('input', () => { $('#student-account').value = ''; $('#student-password').value = ''; $('#student-password').disabled = true; populateStudentAccounts(); });
 $('#teacher-login-submit').addEventListener('click', () => loginStaff('teacher', $('#teacher-password').value));
 $('#profile-photo-input').addEventListener('change', (event) => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) return showToast('Pilih file foto yang valid.', 'warn'); if (file.size > 2 * 1024 * 1024) return showToast('Ukuran foto maksimal 2 MB.', 'warn'); const reader = new FileReader(); reader.onload = () => { localStorage.setItem(PROFILE_PHOTO_KEY, String(reader.result)); renderProfileIdentity(); closeProfileMenu(); showToast('Foto profil berhasil diperbarui.'); }; reader.readAsDataURL(file); event.target.value = ''; });
 $('#logout-button').addEventListener('click', logoutStudent);

@@ -22,6 +22,10 @@ Sheet `Database Siswa` dibaca tanpa mengubah data. Sheet tambahan yang dibuat:
 
 Sheet `StatusWA` menyimpan status pesan secara terpisah untuk `arrival` (jam datang) dan `departure` (jam pulang). Kolomnya: `Tanggal, ID Siswa, Status WA, Waktu Diproses, Waktu Terkirim, Jenis WA`.
 
+### Password siswa
+
+Jalankan `setupStudentPasswordColumns()` sekali dari editor Apps Script untuk menambahkan kolom `Password Hash` dan `Password Salt` tanpa menghapus kolom existing. Lalu isi password awal dengan menjalankan, misalnya, `setStudentPassword('ID_SISWA', 'PasswordAwal')` dari editor Apps Script. Ganti nilai contoh sebelum menjalankan dan jangan mencatat password di log. Fungsi tersebut hanya menyimpan hash bersalt; password asli tidak disimpan. Endpoint `student/login` hanya membaca hash di server dan tidak pernah mengirimkannya ke browser. Password siswa wajib diisi sebelum akun dapat digunakan.
+
 ## Menghubungkan ke GitHub Pages
 
 Di repository GitHub, buka **Settings → Secrets and variables → Actions → Variables**, buat variable:

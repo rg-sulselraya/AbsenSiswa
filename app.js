@@ -67,6 +67,7 @@ function profileIdentity() {
   return { name: 'Nama Siswa', role: 'Belum login', initials: 'NA' };
 }
 function renderProfileIdentity() {
+  const wrap = $('.profile-menu-wrap'); const authenticated = Boolean(studentSession || staffSession || ['teacher', 'admin'].includes(authRole)); if (wrap) wrap.hidden = !authenticated; if (!authenticated) closeProfileMenu();
   const identity = profileIdentity(); const name = $('#profile-name'); const role = $('#profile-role'); const avatar = $('#profile-avatar'); if (!name || !role || !avatar) return;
   name.textContent = identity.name; role.textContent = identity.role;
   const photo = localStorage.getItem(PROFILE_PHOTO_KEY); avatar.textContent = photo ? '' : identity.initials; avatar.style.backgroundImage = photo ? `url("${photo}")` : ''; avatar.classList.toggle('has-photo', Boolean(photo));

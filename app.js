@@ -654,7 +654,18 @@ $('#camera-button').addEventListener('click', activateCamera);
 $('#search-input').addEventListener('input', renderDashboard); $('#class-filter').addEventListener('change', renderDashboard); $('#attendance-filter').addEventListener('change', renderDashboard); $('#wa-filter').addEventListener('change', renderDashboard);
 $('#filter-toggle').addEventListener('click', () => $('#filter-row').classList.toggle('show'));
 $('#reset-filter').addEventListener('click', () => { $('#class-filter').value = 'all'; $('#attendance-filter').value = 'all'; $('#wa-filter').value = 'all'; $('#search-input').value = ''; renderDashboard(); });
-$('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', async () => { await Promise.all([loadStudents(), loadDeviceBindings()]); populateStudentAccounts(); renderDeviceManagement(); showToast('Daftar device berhasil disegarkan.'); });
+$('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', async (event) => {
+  const button = event.currentTarget; if (button.disabled) return;
+  const original = button.innerHTML; button.disabled = true; button.setAttribute('aria-busy', 'true'); button.innerHTML = '↻ Memuat...'; deviceBindingsLoadState = 'loading'; renderDeviceManagement();
+  try {
+    await Promise.all([loadStudents(), loadDeviceBindings()]);
+    populateStudentAccounts(); renderDeviceManagement();
+    if (deviceBindingsLoadState === 'error') showToast('Gagal mengambil data Device Binding. Silakan coba lagi.', 'warn');
+    else showToast('Daftar device berhasil disegarkan.');
+  } catch (error) {
+    deviceBindingsLoadState = 'error'; console.warn('[DEVICE BINDING] Refresh failed', { message: error?.message || String(error) }); renderDeviceManagement(); showToast('Gagal mengambil data Device Binding. Silakan coba lagi.', 'warn');
+  } finally { button.disabled = false; button.removeAttribute('aria-busy'); button.innerHTML = original; }
+});
 $('#refresh-branch-barcode').addEventListener('click', renderBranchBarcodes); $('#print-all-branch-barcode').addEventListener('click', () => { $$('.branch-barcode-card').forEach(card => card.classList.add('print-target')); window.print(); $$('.branch-barcode-card').forEach(card => card.classList.remove('print-target')); });
 document.addEventListener('click', event => { const printButton = event.target.closest('[data-print-branch]'); if (printButton) printBranchBarcode(printButton.dataset.printBranch); });
 $('#refresh-button').addEventListener('click', async () => { await Promise.all([loadAttendance(), loadWaStatuses()]); renderAll(); showToast('Rekap berhasil disegarkan.'); });

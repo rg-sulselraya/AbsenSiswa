@@ -21,6 +21,7 @@ const BINDING_KEY = 'ruang-kelas-device-bindings-v1';
 const RESET_LOG_KEY = 'ruang-kelas-device-reset-log-v1';
 const STAFF_SESSION_KEY = 'ruang-kelas-staff-session-v1';
 const PROFILE_PHOTO_KEY = 'ruang-kelas-profile-photo-v1';
+const STUDENTS_CACHE_KEY = 'ruang-kelas-students-cache-v1';
 const BRANCHES = [
   { id: 'CABANG-001', name: 'Hertasning', status: 'Aktif' },
   { id: 'CABANG-002', name: 'Panakkukang', status: 'Aktif' },
@@ -40,7 +41,7 @@ const FALLBACK_STUDENTS = [
   { id: 'NAFISAHRORJ8JEXA', name: 'Nafisah Daneen Mawali', className: '9 SMP R3.01', branch: 'Tamalanrea', branchId: 'CABANG-003', grade: '9 SMP', parentPhone: '' },
 ]; 
 
-let students = FALLBACK_STUDENTS;
+let students = loadJson(STUDENTS_CACHE_KEY, FALLBACK_STUDENTS);
 let records = loadJson(STORAGE_KEY, {});
 let waStatuses = loadJson(WA_KEY, {});
 let studentSession = loadJson(SESSION_KEY, null);
@@ -145,7 +146,7 @@ async function loadStudents() {
     const response = await fetch(apiUrl('students'));
     if (!response.ok) throw new Error('student endpoint unavailable');
     const data = await response.json();
-    if (Array.isArray(data.students) && data.students.length) students = data.students.map((student) => ({ ...student, branchId: student.branchId || student.cabangId || '', branch: student.branch || student.branchName || '' }));
+    if (Array.isArray(data.students) && data.students.length) { students = data.students.map((student) => ({ ...student, branchId: student.branchId || student.cabangId || '', branch: student.branch || student.branchName || '' })); localStorage.setItem(STUDENTS_CACHE_KEY, JSON.stringify(students)); }
   } catch { showToast('Mode demo aktif — sambungkan endpoint Google Sheets untuk data sekolah.', 'warn'); }
 }
 
@@ -180,6 +181,11 @@ async function loadWaStatuses() {
       saveWaStatus(`${date}::${studentId}`, type, { studentId, status, processedAt: entry['Waktu Diproses'] || entry.processedAt || '', deliveredAt: entry['Waktu Terkirim'] || entry.deliveredAt || '' });
     });
   } catch (error) { console.warn('[WA] Load failed', { message: error.message }); /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }
+}
+
+async function loadDashboardData() {
+  await Promise.all([loadDeviceBindings(), loadAttendance(), loadWaStatuses()]);
+  renderAll();
 }
 
 async function loadAttendance() {
@@ -217,13 +223,14 @@ async function loadAttendance() {
 
 async function serverDeviceCheck(student, token) {
   if (!API_BASE) return { status: 'local' };
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(apiUrl('device-binding/check'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) });
+    const response = await fetch(apiUrl('device-binding/check'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }), signal: controller.signal });
     const data = await response.json();
     if (data.message && !data.status) return { status: 'error', message: data.message };
     if (!response.ok) return { status: 'error', message: data.message || 'Perangkat tidak dapat divalidasi.' };
     return data;
-  } catch { return { status: 'error', message: 'Server device binding tidak tersedia.' }; }
+  } catch (error) { return { status: 'error', message: error.name === 'AbortError' ? 'Validasi perangkat terlalu lama. Silakan coba lagi.' : 'Server device binding tidak tersedia.' }; } finally { clearTimeout(timeout); }
 }
 
 async function loginStaff(role, password) {
@@ -241,7 +248,7 @@ async function loginStaff(role, password) {
       return showToast(code ? authErrorMessage(code, role) : (data?.message || 'Autentifikasi staf gagal.'), 'warn');
     }
     if (!data?.token || !data?.role) return showToast(authErrorMessage('AUTH_INVALID_RESPONSE', role), 'warn');
-    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); renderProfileIdentity(); setView('dashboard'); showToast('Login Student Mentor berhasil.');
+    staffSession = { role: data.role, token: data.token }; studentSession = null; authRole = data.role; persist(); persistStaffSession(); renderProfileIdentity(); setView('dashboard'); showToast('Login Student Mentor berhasil.'); loadDashboardData();
   } catch (error) {
     const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
     console.warn('[AUTH] Request failed', { endpoint: apiUrl('staff/login'), code });
@@ -265,7 +272,7 @@ async function bindDevice(student) {
   persist(); $('#bind-modal').hidden = true; pendingBindStudent = null; completeStudentLogin(student); showToast('Perangkat berhasil terdaftar untuk akun ini.');
 }
 
-function completeStudentLogin(student) { studentSession = { id: student.id, name: student.name, className: student.className, branch: student.branch, branchId: student.branchId }; staffSession = null; authRole = 'student'; persist(); persistStaffSession(); renderProfileIdentity(); renderSession(); }
+function completeStudentLogin(student) { studentSession = { id: student.id, name: student.name, className: student.className, branch: student.branch, branchId: student.branchId }; staffSession = null; authRole = 'student'; persist(); persistStaffSession(); renderProfileIdentity(); renderSession(); loadAttendance().then(renderAll); }
 
 function getCurrentLocation() {
   return new Promise((resolve, reject) => {
@@ -489,26 +496,27 @@ async function loginStudent() {
   if (!student.branchId) return showToast('Cabang siswa belum dipetakan oleh admin.', 'warn');
   const password = String($('#student-password')?.value || '');
   if (!password) return showToast('Masukkan password siswa.', 'warn');
-  if (API_BASE) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS);
-    try {
-      const endpoint = apiUrl('student/login');
-      const response = await fetch(endpoint, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, password }), signal: controller.signal });
-      let data;
-      try { data = await response.json(); } catch { console.warn('[STUDENT AUTH] Invalid JSON response', { endpoint, status: response.status }); return showToast(studentAuthErrorMessage('AUTH_INVALID_RESPONSE'), 'warn'); }
-      console.info('[STUDENT AUTH] Response received', { endpoint, status: response.status, code: data?.code || null });
-      if (!response.ok || data?.success === false || data?.authenticated !== true) return showToast(studentAuthErrorMessage(data?.code || 'STUDENT_AUTH_FAILED'), 'warn');
-    } catch (error) {
-      const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE';
-      console.warn('[STUDENT AUTH] Request failed', { endpoint: apiUrl('student/login'), code });
-      return showToast(studentAuthErrorMessage(code), 'warn');
-    } finally { clearTimeout(timeout); }
-  }
-  $('#student-password').value = '';
   const token = localStorage.getItem(DEVICE_KEY);
   if (token && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain. Silakan gunakan perangkat yang terdaftar atau hubungi Admin.', 'warn');
-  const serverCheck = await serverDeviceCheck(student, token);
+  let serverCheck = { status: 'local' };
+  if (API_BASE) {
+    const authenticate = (async () => {
+      const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS); const endpoint = apiUrl('student/login');
+      try {
+        const response = await fetch(endpoint, { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, password }), signal: controller.signal });
+        let data; try { data = await response.json(); } catch { return { ok: false, code: 'AUTH_INVALID_RESPONSE' }; }
+        console.info('[STUDENT AUTH] Response received', { endpoint, status: response.status, code: data?.code || null });
+        return response.ok && data?.success !== false && data?.authenticated === true ? { ok: true } : { ok: false, code: data?.code || (response.status === 401 ? 'STUDENT_AUTH_FAILED' : '') };
+      } catch (error) { const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE'; console.warn('[STUDENT AUTH] Request failed', { endpoint, code }); return { ok: false, code }; }
+      finally { clearTimeout(timeout); }
+    })();
+    const [bindingResult, authResult] = await Promise.all([serverDeviceCheck(student, token), authenticate]);
+    serverCheck = bindingResult;
+    if (!authResult.ok) return showToast(studentAuthErrorMessage(authResult.code || 'STUDENT_AUTH_FAILED'), 'warn');
+  } else {
+    serverCheck = await serverDeviceCheck(student, token);
+  }
+  $('#student-password').value = '';
   if (serverCheck.status === 'error') return showToast(serverCheck.message, 'warn');
   if (API_BASE && serverCheck.status === 'TERDAFTAR') { completeStudentLogin(student); showToast(`Selamat datang kembali, ${student.name}.`); return; }
   if (API_BASE && serverCheck.status === 'BELUM_TERDAFTAR') { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Perangkat ini belum terdaftar untuk akun ${student.name}. Daftarkan perangkat ini? Satu akun siswa hanya dapat menggunakan satu perangkat.`; $('#bind-modal').hidden = false; return; }
@@ -612,5 +620,7 @@ window.addEventListener('beforeunload', stopCamera);
 const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
 $('#display-date').textContent = formattedToday;
 if ($('#table-date')) $('#table-date').textContent = formattedToday;
-Promise.all([loadStudents(), loadBranches(), loadDeviceBindings(), loadAttendance(), loadWaStatuses()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); resumeStudentSession(); });
+populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity();
+Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); return resumeStudentSession(); }).catch(() => {});
+if (staffSession) loadDashboardData();
 renderProfileIdentity();

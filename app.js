@@ -1,3 +1,5 @@
+import QRCode from 'qrcode';
+
 /*
  * The UI talks to a backend through VITE_ATTENDANCE_API_URL when one is configured.
  * The browser never receives Google credentials. Until that backend is configured,
@@ -334,25 +336,13 @@ async function confirmResetDevice() {
 
 function renderAll() { renderSummary(); renderDashboard(); }
 
-let qrLibraryPromise = null;
-function loadQrLibrary() {
-  if (globalThis.QRCode) return Promise.resolve(globalThis.QRCode);
-  if (qrLibraryPromise) return qrLibraryPromise;
-  qrLibraryPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js'; script.async = true;
-    script.onload = () => globalThis.QRCode ? resolve(globalThis.QRCode) : reject(new Error('QR library tidak tersedia.'));
-    script.onerror = () => reject(new Error('QR library tidak dapat dimuat.')); document.head.appendChild(script);
-  });
-  return qrLibraryPromise;
-}
 async function renderBranchBarcodes() {
   const grid = $('#branch-barcode-grid'); if (!grid) return;
   if (!branches.length) { grid.innerHTML = '<div class="empty-state"><div>▤</div><b>Data cabang belum tersedia</b><span>Isi Database Cabang terlebih dahulu.</span></div>'; return; }
   grid.innerHTML = branches.filter(branch => branch.status !== 'Nonaktif').map(branch => `<article class="branch-barcode-card" data-branch-code="${esc(branch.id)}"><div class="branch-barcode-heading"><div><span class="section-kicker">ID CABANG</span><h2>${esc(branch.name)}</h2><small>${esc(branch.id)}</small></div><span class="branch-status">${esc(branch.status || 'Aktif')}</span></div><div class="barcode-surface"><canvas class="branch-qr" role="img" aria-label="QR Code ${esc(branch.name)}"></canvas><p class="barcode-fallback">${esc(branch.id)}</p></div><button class="outline-button branch-print-button" type="button" data-print-branch="${esc(branch.id)}">▣ Cetak QR</button></article>`).join('');
   try {
-    const QRCode = await loadQrLibrary();
     await Promise.all($$('.branch-barcode-card').map(card => QRCode.toCanvas($('.branch-qr', card), card.dataset.branchCode, { width: 180, margin: 2, color: { dark: '#7a1f3d', light: '#ffffff' } })));
-  } catch (error) { console.warn('[QR] Generator unavailable', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('Generator QR belum dapat dimuat. ID cabang tetap dapat dicetak.', 'warn'); }
+  } catch (error) { console.warn('[QR] Generator failed', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('QR tidak dapat dibuat. ID cabang tetap dapat dicetak.', 'warn'); }
 }
 function printBranchBarcode(branchId) {
   $$('.branch-barcode-card').forEach(card => { card.classList.toggle('print-target', card.dataset.branchCode === branchId); });

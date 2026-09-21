@@ -299,6 +299,7 @@ async function processScan(rawBranchId) {
   if (!student) return showScanResult('Akun siswa tidak ditemukan. Silakan login kembali.', 'warning');
   if ((!API_BASE && !deviceSessionValid(student.id)) || (API_BASE && !hasDeviceToken())) { studentSession = null; authRole = null; persist(); setView('login'); return showScanResult('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warning'); }
   if (student.branchId && student.branchId.toUpperCase() !== branch.id) return showScanResult(`⚠️ <b>QR cabang tidak sesuai dengan data siswa.</b><br>Anda terdaftar di Cabang <strong>${esc(student.branch)}</strong>.`, 'warning');
+  showScanResult('🔎 <b>QR terbaca.</b><br>Memeriksa lokasi dan menyimpan presensi, mohon tunggu…', 'processing');
   let location;
   try {
     location = await getCurrentLocation();
@@ -328,7 +329,7 @@ async function processScan(rawBranchId) {
   renderAll();
 }
 
-function showScanResult(html, kind) { const box = $('#scan-result'); box.innerHTML = html; box.className = `scan-result show ${kind}`; box.setAttribute('role', kind === 'success' ? 'status' : 'alert'); if (kind === 'success') { navigator.vibrate?.(180); requestAnimationFrame(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' })); } }
+function showScanResult(html, kind) { const box = $('#scan-result'); box.innerHTML = html; box.className = `scan-result show ${kind}`; box.setAttribute('role', kind === 'success' || kind === 'processing' ? 'status' : 'alert'); if (kind === 'success') navigator.vibrate?.(180); if (kind === 'success' || kind === 'processing') requestAnimationFrame(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
 function showToast(message, kind = 'success') { const toast = document.createElement('div'); toast.className = `toast ${kind}`; toast.textContent = message; $('#toast-region').append(toast); setTimeout(() => toast.remove(), 3900); }
 
 function renderSummary() {
@@ -568,11 +569,11 @@ async function scanVideo(video) {
       const width = video.videoWidth; const height = video.videoHeight;
       if (width && height) { scanCanvas.width = width; scanCanvas.height = height; const context = scanCanvas.getContext('2d', { willReadFrequently: true }); context.drawImage(video, 0, 0, width, height); const result = jsQR(context.getImageData(0, 0, width, height).data, width, height, { inversionAttempts: 'attemptBoth' }); value = result?.data || ''; }
     }
-    if (value) { processScan(value); stopCamera(); return; }
+    if (value) { stopCamera(); showScanResult('🔎 <b>QR terbaca.</b><br>Memeriksa lokasi dan menyimpan presensi, mohon tunggu…', 'processing'); await processScan(value); return; }
   } catch { /* continue scanning */ }
   cameraTimer = setTimeout(() => scanVideo(video), 300);
 }
-function stopCamera() { cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null; if (cameraTimer) clearTimeout(cameraTimer); barcodeDetector = null; }
+function stopCamera() { cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null; if (cameraTimer) clearTimeout(cameraTimer); barcodeDetector = null; const button = $('#camera-button'); if (button) { button.disabled = false; button.innerHTML = '<span>◉</span> Aktifkan kamera'; } }
 
 document.addEventListener('click', (event) => {
   const profileTrigger = event.target.closest('#profile-trigger'); if (profileTrigger) return toggleProfileMenu();

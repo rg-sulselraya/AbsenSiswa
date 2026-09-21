@@ -108,3 +108,4 @@ html,body{max-width:100%;overflow-x:hidden}
 /* Scan confirmation is intentionally prominent so students know the QR was recorded. */
 .scan-result.success { font-size: 13px; line-height: 1.7; border-color: #9fdbc0; box-shadow: 0 5px 16px rgba(38,126,117,.12); }
 .scan-result.success b { font-size: 15px; }
+.scan-result.processing { display: block; background: #f2f7f6; border: 1px solid #cfe4df; color: #46736d; font-size: 13px; line-height: 1.7; }

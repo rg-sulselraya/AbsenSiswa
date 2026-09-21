@@ -253,8 +253,14 @@ function attendanceRows_(requestedDate) {
   const wanted = String(requestedDate || dateKey_()).slice(0, 10); const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet);
   return data.map(row => {
     const rawDate = row['Tanggal']; const date = rawDate instanceof Date ? Utilities.formatDate(rawDate, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd') : String(rawDate || '').slice(0, 10);
-    return { ...row, Tanggal: date };
+    return { ...row, Tanggal: date, 'Jam Datang': timeValue_(row['Jam Datang']), 'Jam Pulang': timeValue_(row['Jam Pulang']) };
   }).filter(row => row.Tanggal === wanted);
+}
+function timeValue_(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+  const text = String(value || '').trim(); if (!text) return '';
+  if (/^\d{1,2}[.:]\d{2}$/.test(text)) return text.replace('.', ':');
+  const parsed = new Date(text); return Number.isNaN(parsed.getTime()) ? text : Utilities.formatDate(parsed, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
 }
 function waStatusRows_(requestedDate) {
   const wanted = requestedDate ? normalizeDate_(requestedDate) : '';

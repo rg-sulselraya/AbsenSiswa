@@ -64,6 +64,7 @@ function setProcessing(visible, title = 'Sedang memproses...', copy = 'Mohon tun
 async function runWithProcessing(button, task, title = 'Sedang memproses...') { if (button?.disabled) return; const original = button?.innerHTML; if (button) { button.disabled = true; button.classList.add('is-loading'); button.innerHTML = `<span class="button-spinner" aria-hidden="true"></span>${title}`; } setProcessing(true, title); try { return await task(); } finally { if (button) { button.disabled = false; button.classList.remove('is-loading'); button.innerHTML = original; } setProcessing(false); } }
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 const nowTime = () => new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Makassar' }).format(new Date());
+const formatAttendanceTime = (value) => { const text = String(value ?? '').trim(); if (!text) return ''; if (/^\d{1,2}[.:]\d{2}$/.test(text)) return text.replace('.', ':'); const parsed = new Date(text); return Number.isNaN(parsed.getTime()) ? text : new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Makassar' }).format(parsed); };
 const initials = (name) => name.split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 function loadJson(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
@@ -186,6 +187,7 @@ async function loadWaStatuses() {
 async function loadDashboardData() {
   await Promise.all([loadDeviceBindings(), loadAttendance(), loadWaStatuses()]);
   renderAll();
+  if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement();
 }
 
 async function loadAttendance() {
@@ -210,8 +212,8 @@ async function loadAttendance() {
         className: String(entry.Kelas || entry.className || previous.className || ''),
         branchId: String(entry['ID Cabang'] || entry.branchId || previous.branchId || ''),
         branch: String(entry.Cabang || entry.branch || previous.branch || ''),
-        checkIn: String(entry['Jam Datang'] || entry.checkIn || previous.checkIn || ''),
-        checkOut: String(entry['Jam Pulang'] || entry.checkOut || previous.checkOut || ''),
+        checkIn: formatAttendanceTime(entry['Jam Datang'] || entry.checkIn || previous.checkIn || ''),
+        checkOut: formatAttendanceTime(entry['Jam Pulang'] || entry.checkOut || previous.checkOut || ''),
         status: String(entry.Status || entry.status || previous.status || ''),
       };
     });
@@ -609,7 +611,7 @@ $('#camera-button').addEventListener('click', activateCamera);
 $('#search-input').addEventListener('input', renderDashboard); $('#class-filter').addEventListener('change', renderDashboard); $('#attendance-filter').addEventListener('change', renderDashboard); $('#wa-filter').addEventListener('change', renderDashboard);
 $('#filter-toggle').addEventListener('click', () => $('#filter-row').classList.toggle('show'));
 $('#reset-filter').addEventListener('click', () => { $('#class-filter').value = 'all'; $('#attendance-filter').value = 'all'; $('#wa-filter').value = 'all'; $('#search-input').value = ''; renderDashboard(); });
-$('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', () => { renderDeviceManagement(); showToast('Daftar device berhasil disegarkan.'); });
+$('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', async () => { await Promise.all([loadStudents(), loadDeviceBindings()]); populateStudentAccounts(); renderDeviceManagement(); showToast('Daftar device berhasil disegarkan.'); });
 $('#refresh-branch-barcode').addEventListener('click', renderBranchBarcodes); $('#print-all-branch-barcode').addEventListener('click', () => { $$('.branch-barcode-card').forEach(card => card.classList.add('print-target')); window.print(); $$('.branch-barcode-card').forEach(card => card.classList.remove('print-target')); });
 document.addEventListener('click', event => { const printButton = event.target.closest('[data-print-branch]'); if (printButton) printBranchBarcode(printButton.dataset.printBranch); });
 $('#refresh-button').addEventListener('click', async () => { await Promise.all([loadAttendance(), loadWaStatuses()]); renderAll(); showToast('Rekap berhasil disegarkan.'); });
@@ -621,6 +623,6 @@ const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month:
 $('#display-date').textContent = formattedToday;
 if ($('#table-date')) $('#table-date').textContent = formattedToday;
 populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity();
-Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); return resumeStudentSession(); }).catch(() => {});
+Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); return resumeStudentSession(); }).catch(() => {});
 if (staffSession) loadDashboardData();
 renderProfileIdentity();

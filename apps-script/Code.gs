@@ -251,16 +251,44 @@ function attendance_(payload) {
 }
 function attendanceRows_(requestedDate) {
   const wanted = String(requestedDate || dateKey_()).slice(0, 10); const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet);
-  return data.map(row => {
+  const grouped = {};
+  data.forEach(row => {
     const rawDate = row['Tanggal']; const date = rawDate instanceof Date ? Utilities.formatDate(rawDate, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd') : String(rawDate || '').slice(0, 10);
-    return { ...row, Tanggal: date, 'Jam Datang': timeValue_(row['Jam Datang']), 'Jam Pulang': timeValue_(row['Jam Pulang']) };
-  }).filter(row => row.Tanggal === wanted);
+    if (date !== wanted) return;
+    const normalized = { ...row, Tanggal: date, 'Jam Datang': timeValue_(row['Jam Datang'], date), 'Jam Pulang': timeValue_(row['Jam Pulang'], date) };
+    const studentId = String(row['ID Siswa'] || '').trim();
+    if (!studentId) return;
+    const key = `${date}::${studentId}`;
+    const current = grouped[key];
+    // Keep the most complete row when old data contains duplicate scans.
+    const score = (item) => (item['Jam Datang'] ? 1 : 0) + (item['Jam Pulang'] ? 2 : 0);
+    if (!current || score(normalized) >= score(current)) grouped[key] = normalized;
+  });
+  return Object.values(grouped);
 }
-function timeValue_(value) {
-  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+function timeValue_(value, expectedDate) {
+  // Empty time cells can arrive from Sheets as the zero date/time. Treat that
+  // sentinel as empty so students who have not scanned are not shown as 00:00.
+  if (value instanceof Date) {
+    // Sheets may represent a time-only cell with the base year 1899/1900.
+    // Keep it when it has a real hour/minute, but discard a zero-time value.
+    if (value.getFullYear() <= 1900) {
+      if (value.getHours() === 0 && value.getMinutes() === 0) return '';
+      return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+    }
+    if (expectedDate && Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd') !== expectedDate) return '';
+    const formatted = Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+    return formatted === '00:00' ? '' : formatted;
+  }
   const text = String(value || '').trim(); if (!text) return '';
+  if (/^0{1,2}[.:]0{2}$/.test(text)) return '';
   if (/^\d{1,2}[.:]\d{2}$/.test(text)) return text.replace('.', ':');
-  const parsed = new Date(text); return Number.isNaN(parsed.getTime()) ? text : Utilities.formatDate(parsed, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  if (expectedDate && /^\d{4}-\d{2}-\d{2}[T\s]/.test(text) && Utilities.formatDate(parsed, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd') !== expectedDate) return '';
+  if (parsed.getFullYear() <= 1900) return '';
+  const formatted = Utilities.formatDate(parsed, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+  return formatted === '00:00' ? '' : formatted;
 }
 function waStatusRows_(requestedDate) {
   const wanted = requestedDate ? normalizeDate_(requestedDate) : '';

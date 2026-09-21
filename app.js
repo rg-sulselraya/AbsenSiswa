@@ -64,7 +64,7 @@ function setProcessing(visible, title = 'Sedang memproses...', copy = 'Mohon tun
 async function runWithProcessing(button, task, title = 'Sedang memproses...') { if (button?.disabled) return; const original = button?.innerHTML; if (button) { button.disabled = true; button.classList.add('is-loading'); button.innerHTML = `<span class="button-spinner" aria-hidden="true"></span>${title}`; } setProcessing(true, title); try { return await task(); } finally { if (button) { button.disabled = false; button.classList.remove('is-loading'); button.innerHTML = original; } setProcessing(false); } }
 const dateKey = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(new Date());
 const nowTime = () => new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Makassar' }).format(new Date());
-const formatAttendanceTime = (value) => { const text = String(value ?? '').trim(); if (!text) return ''; if (/^\d{1,2}[.:]\d{2}$/.test(text)) return text.replace('.', ':'); const parsed = new Date(text); return Number.isNaN(parsed.getTime()) ? text : new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Makassar' }).format(parsed); };
+const formatAttendanceTime = (value, expectedDate = '') => { const text = String(value ?? '').trim(); if (!text || /^0{1,2}[.:]0{2}$/.test(text)) return ''; if (/^\d{1,2}[.:]\d{2}$/.test(text)) return text.replace('.', ':'); const parsed = new Date(text); if (Number.isNaN(parsed.getTime())) return text; if (expectedDate && /^\d{4}-\d{2}-\d{2}[T\s]/.test(text) && new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Makassar' }).format(parsed) !== expectedDate) return ''; if (parsed.getFullYear() <= 1900) return ''; const formatted = new Intl.DateTimeFormat('id-ID', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Makassar' }).format(parsed); return formatted === '00:00' ? '' : formatted; };
 const initials = (name) => name.split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 function loadJson(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
@@ -120,7 +120,14 @@ function studentAuthErrorMessage(code) {
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
-function todayRecord(studentId) { return records[`${dateKey()}::${studentId}`] || null; }
+function todayRecord(studentId) {
+  const record = records[`${dateKey()}::${studentId}`];
+  if (!record) return null;
+  const checkIn = formatAttendanceTime(record.checkIn || '', record.date || dateKey());
+  const checkOut = formatAttendanceTime(record.checkOut || '', record.date || dateKey());
+  if (!checkIn && !checkOut) return null;
+  return { ...record, checkIn, checkOut };
+}
 function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank } }; if (value.arrival || value.departure) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank } }; }
 function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : 'arrival']; }
 function saveWaStatus(key, type, value) { const current = normalizeWaStatus(waStatuses[key]); current[type === 'departure' ? 'departure' : 'arrival'] = { ...current[type === 'departure' ? 'departure' : 'arrival'], ...value }; waStatuses[key] = current; return current[type === 'departure' ? 'departure' : 'arrival']; }
@@ -204,6 +211,9 @@ async function loadAttendance() {
       if (!studentId || date !== today) return;
       const key = `${date}::${studentId}`;
       const previous = records[key] || {};
+      const normalizedCheckIn = formatAttendanceTime(entry['Jam Datang'] || entry.checkIn || previous.checkIn || '', date);
+      const normalizedCheckOut = formatAttendanceTime(entry['Jam Pulang'] || entry.checkOut || previous.checkOut || '', date);
+      if (!normalizedCheckIn && !normalizedCheckOut) { delete records[key]; return; }
       records[key] = {
         ...previous,
         date,
@@ -212,8 +222,8 @@ async function loadAttendance() {
         className: String(entry.Kelas || entry.className || previous.className || ''),
         branchId: String(entry['ID Cabang'] || entry.branchId || previous.branchId || ''),
         branch: String(entry.Cabang || entry.branch || previous.branch || ''),
-        checkIn: formatAttendanceTime(entry['Jam Datang'] || entry.checkIn || previous.checkIn || ''),
-        checkOut: formatAttendanceTime(entry['Jam Pulang'] || entry.checkOut || previous.checkOut || ''),
+        checkIn: normalizedCheckIn,
+        checkOut: normalizedCheckOut,
         status: String(entry.Status || entry.status || previous.status || ''),
       };
     });

@@ -95,6 +95,7 @@ function bindingFor(studentId) {
   const match = Object.entries(deviceBindings).find(([id, binding]) => String(id || binding?.studentId || '').trim().toUpperCase() === wanted);
   return match ? match[1] : null;
 }
+function bindingStatus(binding) { const raw = String(binding?.status || '').trim().toLowerCase(); if (/reset|revoke|nonaktif|inactive|disabled/.test(raw)) return 'DI-RESET'; if (binding?.deviceToken || binding?.deviceId || /terdaftar|registered|aktif|active/.test(raw)) return 'TERDAFTAR'; return 'BELUM_TERDAFTAR'; }
 function staffHeaders() { return staffSession?.token && !API_BASE.includes('script.google.com') ? { 'X-Staff-Session': staffSession.token } : {}; }
 function apiUrl(path, query = {}) {
   const params = new URLSearchParams(query);
@@ -422,12 +423,12 @@ function renderDeviceManagement() {
   const loading = API_BASE && deviceBindingsLoadState === 'loading';
   const failed = API_BASE && deviceBindingsLoadState === 'error';
   const rows = loading || failed ? [] : students.map((student) => ({ student, binding: bindingFor(student.id) })).filter(({ student, binding }) => {
-    const status = binding?.status || 'BELUM_TERDAFTAR';
+    const status = bindingStatus(binding);
     return (!query || student.name.toLowerCase().includes(query) || student.id.toLowerCase().includes(query)) && (statusFilter === 'all' || status === statusFilter);
   });
   $('#device-total').textContent = students.length; $('#device-showing').textContent = rows.length;
   $('#device-body').innerHTML = rows.map(({ student, binding }) => {
-    const status = binding?.status || 'BELUM_TERDAFTAR';
+    const status = bindingStatus(binding);
     const statusLabel = status === 'TERDAFTAR' ? '🟢 Aktif' : status === 'DI-RESET' ? '↺ Di-Reset' : '🔴 Belum Terdaftar';
     const date = binding?.boundAt ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(binding.boundAt)) : '—';
     const action = status === 'TERDAFTAR' ? `<button class="wa-action reset-device-action" data-reset-device="${esc(student.id)}">Reset Device</button>` : '<span class="dash">—</span>';

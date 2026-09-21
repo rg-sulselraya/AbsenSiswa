@@ -267,19 +267,30 @@ async function bindDevice(student) {
 
 function completeStudentLogin(student) { studentSession = { id: student.id, name: student.name, className: student.className, branch: student.branch, branchId: student.branchId }; staffSession = null; authRole = 'student'; persist(); persistStaffSession(); renderProfileIdentity(); renderSession(); }
 
-function saveAttendance(student, type) {
+function getCurrentLocation() {
+  return new Promise((resolve, reject) => {
+    if (!navigator.geolocation) return reject(new Error('GPS_NOT_SUPPORTED'));
+    navigator.geolocation.getCurrentPosition(resolve, error => reject(new Error(error.code === 1 ? 'GPS_PERMISSION_DENIED' : error.code === 3 ? 'GPS_TIMEOUT' : 'GPS_UNAVAILABLE')), { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
+  });
+}
+async function saveAttendance(student, type, location, branch) {
   const key = `${dateKey()}::${student.id}`;
   const current = records[key] || { date: dateKey(), studentId: student.id, name: student.name, className: student.className, branchId: student.branchId, branch: student.branch, status: 'Belum Pulang' };
   const time = nowTime();
-  if (type === 'in') current.checkIn = time;
-  if (type === 'out') { current.checkOut = time; current.status = 'Hadir'; }
-  records[key] = current;
+  const next = { ...current };
+  if (type === 'in') next.checkIn = time;
+  if (type === 'out') { next.checkOut = time; next.status = 'Hadir'; }
+  if (API_BASE) {
+    const response = await fetch(apiUrl('attendance'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...next, branchId: branch.id, branch: branch.name, latitude: location.latitude, longitude: location.longitude, deviceToken: getDeviceToken() }) });
+    let data = {}; try { data = await response.json(); } catch { /* handled below */ }
+    if (!response.ok || data.ok !== true) { const error = new Error(data.code || 'ATTENDANCE_REJECTED'); error.serverMessage = data.message; throw error; }
+  }
+  records[key] = next;
   persist();
-  if (API_BASE) fetch(apiUrl('attendance'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...current, deviceToken: getDeviceToken() }) }).catch(() => {});
-  return current;
+  return next;
 }
 
-function processScan(rawBranchId) {
+async function processScan(rawBranchId) {
   if (!studentSession) return showScanResult('Silakan login sebagai siswa sebelum melakukan presensi.', 'warning');
   const branchId = rawBranchId.trim().toUpperCase();
   const branch = branchById(branchId);
@@ -288,17 +299,30 @@ function processScan(rawBranchId) {
   if (!student) return showScanResult('Akun siswa tidak ditemukan. Silakan login kembali.', 'warning');
   if ((!API_BASE && !deviceSessionValid(student.id)) || (API_BASE && !hasDeviceToken())) { studentSession = null; authRole = null; persist(); setView('login'); return showScanResult('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warning'); }
   if (student.branchId && student.branchId.toUpperCase() !== branch.id) return showScanResult(`⚠️ <b>QR cabang tidak sesuai dengan data siswa.</b><br>Anda terdaftar di Cabang <strong>${esc(student.branch)}</strong>.`, 'warning');
+  let location;
+  try {
+    location = await getCurrentLocation();
+  } catch (error) {
+    const messages = { GPS_PERMISSION_DENIED: 'Izin lokasi ditolak. Aktifkan GPS dan izinkan lokasi untuk melakukan presensi.', GPS_TIMEOUT: 'Lokasi GPS terlalu lama ditemukan. Pastikan GPS aktif lalu coba lagi.', GPS_UNAVAILABLE: 'Lokasi GPS tidak tersedia. Pastikan layanan lokasi aktif.', GPS_NOT_SUPPORTED: 'Perangkat atau browser ini tidak mendukung validasi GPS.' };
+    return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${messages[error.message] || 'Lokasi GPS tidak dapat divalidasi.'}`, 'warning');
+  }
+  if (!Number.isFinite(Number(branch.latitude)) || !Number.isFinite(Number(branch.longitude))) return showScanResult('⚠️ <b>Presensi belum dicatat.</b><br>Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', 'warning');
   const current = todayRecord(student.id);
+  try {
   if (!current) {
-    const record = saveAttendance(student, 'in');
+    const record = await saveAttendance(student, 'in', location.coords, branch);
     showScanResult(`✅ <b>Scan berhasil — Jam Datang tercatat</b><br>Selamat datang, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam datang: <strong>${record.checkIn}</strong>`, 'success');
     showToast(`${student.name} tercatat Jam Datang ${record.checkIn}`, 'success');
   } else if (!current.checkOut) {
-    const record = saveAttendance(student, 'out');
+    const record = await saveAttendance(student, 'out', location.coords, branch);
     showScanResult(`✅ <b>Scan berhasil — Jam Pulang tercatat</b><br>Sampai jumpa, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam pulang: <strong>${record.checkOut}</strong>`, 'success');
     showToast(`${student.name} tercatat Jam Pulang ${record.checkOut}`, 'success');
   } else {
     showScanResult(`ℹ️ <b>Presensi hari ini sudah lengkap.</b><br>Jam datang: <strong>${current.checkIn}</strong><br>Jam pulang: <strong>${current.checkOut}</strong>`, 'warning');
+  }
+  } catch (error) {
+    const messages = { OUTSIDE_BRANCH_RADIUS: error.serverMessage || 'Anda berada di luar radius cabang.', BRANCH_GPS_NOT_CONFIGURED: 'Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', BRANCH_MISMATCH: 'Siswa tidak dapat presensi di cabang ini.' };
+    return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${esc(messages[error.message] || error.serverMessage || 'Presensi ditolak oleh server.')}`, 'warning');
   }
   $('#barcode-input').value = '';
   renderAll();

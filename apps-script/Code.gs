@@ -192,8 +192,18 @@ function setStudentPassword(studentId, password) {
 
 function branches_() {
   const source = sheet_(SHEETS.branches); const values = source.getDataRange().getValues(); if (values.length < 2) return [];
-  const map = headerMap_(source); return values.slice(1).filter(row => row.some(value => value !== '')).map(row => ({ id: String(value_(row, map, 'ID Cabang', 'id') || '').trim(), name: String(value_(row, map, 'Nama Cabang', 'name') || '').trim(), status: String(value_(row, map, 'Status', 'status') || 'Aktif').trim() })).filter(branch => branch.id);
+  const map = headerMap_(source); return values.slice(1).filter(row => row.some(value => value !== '')).map(row => ({
+    id: String(value_(row, map, 'ID Cabang', 'id') || '').trim(), name: String(value_(row, map, 'Nama Cabang', 'name') || '').trim(), status: String(value_(row, map, 'Status', 'status') || 'Aktif').trim(),
+    latitude: number_(value_(row, map, 'Latitude', 'Lat')), longitude: number_(value_(row, map, 'Longitude', 'Lng', 'Long')), radius: number_(value_(row, map, 'Radius (meter)', 'Radius Meter', 'Radius', 'GPS Radius')) || 100
+  })).filter(branch => branch.id);
 }
+
+function number_(value) { const parsed = Number(String(value ?? '').replace(',', '.').trim()); return Number.isFinite(parsed) ? parsed : null; }
+function distanceMeters_(lat1, lon1, lat2, lon2) {
+  const radians = value => value * Math.PI / 180; const earthRadius = 6371000; const dLat = radians(lat2 - lat1); const dLon = radians(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2; return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+function branchById_(branchId) { return branches_().find(branch => String(branch.id).toUpperCase() === String(branchId || '').trim().toUpperCase() && branch.status !== 'Nonaktif'); }
+function studentBranchId_(studentId) { const student = students_().find(item => String(item.id) === String(studentId)); return student?.branchId || ''; }
 
 function setupSheets_() {
   const definitions = {};
@@ -231,7 +241,14 @@ function staffLogin_(payload) {
 function staffValidate_(e) { const role = session_(e); return role ? json_({ success: true, authenticated: true, staff: { role }, role }) : json_({ success: false, authenticated: false, code: 'AUTH_SESSION_INVALID', message: 'Sesi staf tidak valid.' }, null, 401); }
 function bindingReset_(e, payload) { const role = session_(e); if (role !== 'teacher' && role !== 'admin') return json_({ message: 'Hanya Student Mentor yang dapat melakukan Reset Device.' }, null, 403); const current = binding_(payload.studentId); if (!current) return json_({ message: 'Binding siswa tidak ditemukan.' }, null, 404); const now = new Date(); const bindingSheet = sheet_(SHEETS.bindings); writeRow_(bindingSheet, bindingRows_().indexOf(current) + 2, [current['ID Siswa'], current['Nama Siswa'], '', 'DI-RESET', current['Tanggal Bind'], now, now]); sheet_(SHEETS.resetLog).appendRow(['RESET-' + Date.now(), current['ID Siswa'], current['Nama Siswa'], now, 'Student Mentor', payload.reason || 'Reset Device', 'DI-RESET', current['Device Token']]); return json_({ status: 'DI-RESET' }); }
 
-function attendance_(payload) { const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet); const index = data.findIndex(row => String(row['Tanggal']) === String(payload.date) && String(row['ID Siswa']) === String(payload.studentId)); const values = [payload.date || dateKey_(), payload.studentId || '', payload.name || '', payload.className || '', payload.branchId || '', payload.branch || '', payload.checkIn || '', payload.checkOut || '', payload.status || 'Belum Pulang']; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true }); }
+function attendance_(payload) {
+  const branch = branchById_(payload.branchId); if (!branch) return json_({ ok: false, code: 'BRANCH_NOT_FOUND', message: 'Cabang presensi tidak ditemukan.' }, null, 400);
+  const mappedBranchId = studentBranchId_(payload.studentId); if (!mappedBranchId || String(mappedBranchId).toUpperCase() !== String(payload.branchId || '').toUpperCase()) return json_({ ok: false, code: 'BRANCH_MISMATCH', message: 'Siswa tidak dapat presensi di cabang ini.' }, null, 403);
+  if (!Number.isFinite(branch.latitude) || !Number.isFinite(branch.longitude)) return json_({ ok: false, code: 'BRANCH_GPS_NOT_CONFIGURED', message: 'Koordinat GPS cabang belum dikonfigurasi.' }, null, 503);
+  const latitude = number_(payload.latitude); const longitude = number_(payload.longitude); if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return json_({ ok: false, code: 'GPS_REQUIRED', message: 'Lokasi GPS wajib diaktifkan untuk presensi.' }, null, 400);
+  const distance = distanceMeters_(latitude, longitude, branch.latitude, branch.longitude); if (distance > branch.radius) return json_({ ok: false, code: 'OUTSIDE_BRANCH_RADIUS', message: `Anda berada di luar radius ${branch.radius} meter dari cabang.` }, null, 403);
+  const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet); const index = data.findIndex(row => normalizeDate_(row['Tanggal']) === normalizeDate_(payload.date || dateKey_()) && String(row['ID Siswa']) === String(payload.studentId)); const values = [payload.date || dateKey_(), payload.studentId || '', payload.name || '', payload.className || '', payload.branchId || '', payload.branch || '', payload.checkIn || '', payload.checkOut || '', payload.status || 'Belum Pulang']; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true, distance: Math.round(distance), radius: branch.radius });
+}
 function attendanceRows_(requestedDate) {
   const wanted = String(requestedDate || dateKey_()).slice(0, 10); const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet);
   return data.map(row => {

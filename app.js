@@ -118,7 +118,7 @@ function studentAuthErrorMessage(code) {
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
-function todayRecord(studentId) { const record = records[`${dateKey()}::${studentId}`] || null; return record?.branchId ? record : null; }
+function todayRecord(studentId) { return records[`${dateKey()}::${studentId}`] || null; }
 function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank } }; if (value.arrival || value.departure) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank } }; }
 function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : 'arrival']; }
 function saveWaStatus(key, type, value) { const current = normalizeWaStatus(waStatuses[key]); current[type === 'departure' ? 'departure' : 'arrival'] = { ...current[type === 'departure' ? 'departure' : 'arrival'], ...value }; waStatuses[key] = current; return current[type === 'departure' ? 'departure' : 'arrival']; }
@@ -167,6 +167,39 @@ async function loadWaStatuses() {
       saveWaStatus(`${date}::${studentId}`, type, { studentId, status, processedAt: entry['Waktu Diproses'] || entry.processedAt || '', deliveredAt: entry['Waktu Terkirim'] || entry.deliveredAt || '' });
     });
   } catch { /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }
+}
+
+async function loadAttendance() {
+  if (!API_BASE) return;
+  try {
+    const today = dateKey();
+    const response = await fetch(apiUrl('attendance', { date: today }));
+    if (!response.ok) throw new Error(`attendance endpoint returned ${response.status}`);
+    const data = await response.json();
+    const entries = Array.isArray(data.entries) ? data.entries : [];
+    entries.forEach((entry) => {
+      const date = String(entry.Tanggal || entry.date || '').slice(0, 10);
+      const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim();
+      if (!studentId || date !== today) return;
+      const key = `${date}::${studentId}`;
+      const previous = records[key] || {};
+      records[key] = {
+        ...previous,
+        date,
+        studentId,
+        name: String(entry['Nama Siswa'] || entry.name || previous.name || ''),
+        className: String(entry.Kelas || entry.className || previous.className || ''),
+        branchId: String(entry['ID Cabang'] || entry.branchId || previous.branchId || ''),
+        branch: String(entry.Cabang || entry.branch || previous.branch || ''),
+        checkIn: String(entry['Jam Datang'] || entry.checkIn || previous.checkIn || ''),
+        checkOut: String(entry['Jam Pulang'] || entry.checkOut || previous.checkOut || ''),
+        status: String(entry.Status || entry.status || previous.status || ''),
+      };
+    });
+    persist();
+  } catch (error) {
+    console.warn('[ATTENDANCE] Load failed', { message: error.message });
+  }
 }
 
 async function serverDeviceCheck(student, token) {
@@ -459,7 +492,11 @@ function logoutStudent() { studentSession = null; authRole = null; persist(); st
 function sendWA(studentId, type = 'arrival') {
   const row = allRows().find(({ student }) => student.id === studentId); if (!row?.record || (type === 'departure' && !row.record.checkOut)) return;
   const { student, record } = row;
-  const message = type === 'departure' ? `Halo Ayah/Bunda ${student.name}, kami informasikan bahwa ${student.name} telah mengikuti pembelajaran hari ini. Jam datang: ${record.checkIn}. Jam pulang: ${record.checkOut}. Terima kasih.` : `Halo Ayah/Bunda ${student.name}, kami informasikan bahwa ${student.name} telah hadir mengikuti pembelajaran hari ini pada pukul ${record.checkIn}.`;
+  const branch = record.branch || student.branch || 'cabang';
+  const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${record.date || dateKey()}T00:00:00+08:00`));
+  const message = type === 'departure'
+    ? `Halo Ayah/Bunda 😊\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, agar pemahaman semakin kuat dan materi yang dipelajari dapat lebih mudah diingat. 📚✨\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\nSalam hangat,\n*Student Mentor*`
+    : `Halo Ayah/Bunda 😊\nKami ingin menginformasikan bahwa *${student.name}* sudah hadir di *Brain Academy ${branch}*\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\nSemoga ${student.name} dapat mengikuti pembelajaran dengan lancar dan mendapatkan pengalaman belajar yang baik hari ini.\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\nSalam hangat,\n*Student Mentor*`;
   const phone = String(student.parentPhone || '').replace(/\D/g, '');
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
@@ -529,11 +566,13 @@ $('#reset-filter').addEventListener('click', () => { $('#class-filter').value = 
 $('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', () => { renderDeviceManagement(); showToast('Daftar device berhasil disegarkan.'); });
 $('#refresh-branch-barcode').addEventListener('click', renderBranchBarcodes); $('#print-all-branch-barcode').addEventListener('click', () => { $$('.branch-barcode-card').forEach(card => card.classList.add('print-target')); window.print(); $$('.branch-barcode-card').forEach(card => card.classList.remove('print-target')); });
 document.addEventListener('click', event => { const printButton = event.target.closest('[data-print-branch]'); if (printButton) printBranchBarcode(printButton.dataset.printBranch); });
-$('#refresh-button').addEventListener('click', () => { renderAll(); showToast('Rekap berhasil disegarkan.'); });
+$('#refresh-button').addEventListener('click', async () => { await Promise.all([loadAttendance(), loadWaStatuses()]); renderAll(); showToast('Rekap berhasil disegarkan.'); });
 $('#export-button').addEventListener('click', () => { const rows = allRows(); const csv = [['Siswa', 'ID', 'Kelas', 'ID Cabang', 'Cabang', 'Jam Datang', 'Jam Pulang', 'Status', 'Status WA Datang', 'Status WA Pulang'], ...rows.map(({ student, record, wa }) => [student.name, student.id, student.className, record?.branchId || student.branchId || '', record?.branch || student.branch || '', record?.checkIn || '', record?.checkOut || '', record ? (record.checkOut ? 'Hadir' : 'Belum Pulang') : 'Belum Hadir', wa.arrival.status, wa.departure.status])].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `rekap-presensi-${dateKey()}.csv`; link.click(); URL.revokeObjectURL(link.href); showToast('Rekap CSV berhasil diunduh.'); });
 $('#modal-cancel').addEventListener('click', () => { $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; }); $('#modal-confirm').addEventListener('click', confirmDelivered);
 window.addEventListener('beforeunload', stopCamera);
 
-$('#display-date').textContent = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
-Promise.all([loadStudents(), loadBranches(), loadDeviceBindings(), loadWaStatuses()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); resumeStudentSession(); });
+const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
+$('#display-date').textContent = formattedToday;
+if ($('#table-date')) $('#table-date').textContent = formattedToday;
+Promise.all([loadStudents(), loadBranches(), loadDeviceBindings(), loadAttendance(), loadWaStatuses()]).finally(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); resumeStudentSession(); });
 renderProfileIdentity();

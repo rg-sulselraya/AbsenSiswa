@@ -117,14 +117,22 @@ function dateKey_() { return Utilities.formatDate(new Date(), Session.getScriptT
 function students_() {
   const source = sheet_(SHEETS.students); const values = source.getDataRange().getValues();
   if (values.length < 2) return [];
-  const map = headerMap_(source); const branchMap = {};
+  const map = headerMap_(source); const branchMap = {}; const branchByName = {};
+  rows_(sheet_(SHEETS.branches)).forEach(row => {
+    const id = String(row['ID Cabang'] || row['id cabang'] || row['id'] || '').trim();
+    const name = String(row['Nama Cabang'] || row['nama cabang'] || row['name'] || '').trim();
+    if (id && name) branchByName[name.toLocaleLowerCase()] = { branchId: id, branch: name };
+  });
   rows_(sheet_(SHEETS.studentBranches)).forEach(row => {
     const id = String(row['ID Siswa'] || row['id siswa'] || row['User Serial'] || '').trim();
     if (id) branchMap[id] = { branchId: String(row['ID Cabang'] || row['id cabang'] || '').trim(), branch: String(row['Nama Cabang'] || row['nama cabang'] || '').trim() };
   });
   return values.slice(1).filter(row => row.some(value => value !== '')).map(row => {
-    const id = String(value_(row, map, 'User Serial', 'ID Siswa', 'id') || '').trim(); const branch = branchMap[id] || {};
-    return { id, name: String(value_(row, map, 'Nama Siswa', 'name') || '').trim(), parentPhone: String(value_(row, map, 'No Ortu', 'Nomor WhatsApp', 'parentPhone') || '').trim(), grade: String(value_(row, map, 'Grade', 'grade') || '').trim(), className: String(value_(row, map, 'Kelas', 'className') || '').trim(), branchId: branch.branchId || String(value_(row, map, 'ID Cabang', 'branchId') || '').trim(), branch: branch.branch || String(value_(row, map, 'Cabang', 'branch') || '').trim() };
+    const id = String(value_(row, map, 'User Serial', 'ID Siswa', 'id') || '').trim(); const name = String(value_(row, map, 'Nama Siswa', 'name') || '').trim(); const branch = branchMap[id] || {};
+    const directBranchId = String(value_(row, map, 'ID Cabang', 'branchId') || '').trim();
+    const directBranchName = String(value_(row, map, 'Nama Cabang Siswa', 'Nama Cabang', 'Cabang', 'branchName', 'branch') || '').trim();
+    const catalogBranch = branchByName[directBranchName.toLocaleLowerCase()] || {};
+    return { id, name, parentPhone: String(value_(row, map, 'No Ortu', 'Nomor WhatsApp', 'parentPhone') || '').trim(), grade: String(value_(row, map, 'Grade', 'grade') || '').trim(), className: String(value_(row, map, 'Kelas', 'className') || '').trim(), branchId: branch.branchId || directBranchId || catalogBranch.branchId || '', branch: branch.branch || directBranchName || catalogBranch.branch || '' };
   }).filter(student => student.id && student.name);
 }
 

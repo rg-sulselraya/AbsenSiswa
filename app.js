@@ -334,25 +334,25 @@ async function confirmResetDevice() {
 
 function renderAll() { renderSummary(); renderDashboard(); }
 
-let barcodeLibraryPromise = null;
-function loadBarcodeLibrary() {
-  if (globalThis.JsBarcode) return Promise.resolve(globalThis.JsBarcode);
-  if (barcodeLibraryPromise) return barcodeLibraryPromise;
-  barcodeLibraryPromise = new Promise((resolve, reject) => {
-    const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/jsbarcode@3.11.6/dist/JsBarcode.all.min.js'; script.async = true;
-    script.onload = () => globalThis.JsBarcode ? resolve(globalThis.JsBarcode) : reject(new Error('Barcode library tidak tersedia.'));
-    script.onerror = () => reject(new Error('Barcode library tidak dapat dimuat.')); document.head.appendChild(script);
+let qrLibraryPromise = null;
+function loadQrLibrary() {
+  if (globalThis.QRCode) return Promise.resolve(globalThis.QRCode);
+  if (qrLibraryPromise) return qrLibraryPromise;
+  qrLibraryPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script'); script.src = 'https://cdn.jsdelivr.net/npm/qrcode@1.5.4/build/qrcode.min.js'; script.async = true;
+    script.onload = () => globalThis.QRCode ? resolve(globalThis.QRCode) : reject(new Error('QR library tidak tersedia.'));
+    script.onerror = () => reject(new Error('QR library tidak dapat dimuat.')); document.head.appendChild(script);
   });
-  return barcodeLibraryPromise;
+  return qrLibraryPromise;
 }
 async function renderBranchBarcodes() {
   const grid = $('#branch-barcode-grid'); if (!grid) return;
   if (!branches.length) { grid.innerHTML = '<div class="empty-state"><div>▤</div><b>Data cabang belum tersedia</b><span>Isi Database Cabang terlebih dahulu.</span></div>'; return; }
-  grid.innerHTML = branches.filter(branch => branch.status !== 'Nonaktif').map(branch => `<article class="branch-barcode-card" data-branch-code="${esc(branch.id)}"><div class="branch-barcode-heading"><div><span class="section-kicker">ID CABANG</span><h2>${esc(branch.name)}</h2><small>${esc(branch.id)}</small></div><span class="branch-status">${esc(branch.status || 'Aktif')}</span></div><div class="barcode-surface"><svg class="branch-barcode" role="img" aria-label="Barcode ${esc(branch.name)}"></svg><p class="barcode-fallback">${esc(branch.id)}</p></div><button class="outline-button branch-print-button" type="button" data-print-branch="${esc(branch.id)}">▣ Cetak barcode</button></article>`).join('');
+  grid.innerHTML = branches.filter(branch => branch.status !== 'Nonaktif').map(branch => `<article class="branch-barcode-card" data-branch-code="${esc(branch.id)}"><div class="branch-barcode-heading"><div><span class="section-kicker">ID CABANG</span><h2>${esc(branch.name)}</h2><small>${esc(branch.id)}</small></div><span class="branch-status">${esc(branch.status || 'Aktif')}</span></div><div class="barcode-surface"><canvas class="branch-qr" role="img" aria-label="QR Code ${esc(branch.name)}"></canvas><p class="barcode-fallback">${esc(branch.id)}</p></div><button class="outline-button branch-print-button" type="button" data-print-branch="${esc(branch.id)}">▣ Cetak QR</button></article>`).join('');
   try {
-    const JsBarcode = await loadBarcodeLibrary();
-    $$('.branch-barcode-card').forEach(card => { const code = card.dataset.branchCode; const svg = $('.branch-barcode', card); JsBarcode(svg, code, { format: 'CODE128', lineColor: '#7a1f3d', background: '#ffffff', width: 2, height: 72, margin: 8, displayValue: true, fontSize: 14, textMargin: 6 }); });
-  } catch (error) { console.warn('[BARCODE] Generator unavailable', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('Generator barcode belum dapat dimuat. ID cabang tetap dapat dicetak.', 'warn'); }
+    const QRCode = await loadQrLibrary();
+    await Promise.all($$('.branch-barcode-card').map(card => QRCode.toCanvas($('.branch-qr', card), card.dataset.branchCode, { width: 180, margin: 2, color: { dark: '#7a1f3d', light: '#ffffff' } })));
+  } catch (error) { console.warn('[QR] Generator unavailable', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('Generator QR belum dapat dimuat. ID cabang tetap dapat dicetak.', 'warn'); }
 }
 function printBranchBarcode(branchId) {
   $$('.branch-barcode-card').forEach(card => { card.classList.toggle('print-target', card.dataset.branchCode === branchId); });
@@ -363,10 +363,10 @@ function printBranchBarcode(branchId) {
 function setView(view) {
   if (view === 'dashboard' && !['teacher', 'admin'].includes(authRole)) { showToast('Dashboard khusus Student Mentor. Silakan login sebagai Student Mentor.', 'warn'); return setView('login'); }
   if (view === 'admin' && !['teacher', 'admin'].includes(authRole)) { showToast('Manajemen Device hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
-  if (view === 'branch-barcode' && !['teacher', 'admin'].includes(authRole)) { showToast('Pembuatan Barcode Cabang hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
+  if (view === 'branch-barcode' && !['teacher', 'admin'].includes(authRole)) { showToast('Pembuatan QR Cabang hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#admin-view').classList.toggle('active-view', view === 'admin'); $('#branch-barcode-view').classList.toggle('active-view', view === 'branch-barcode');
-  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : view === 'branch-barcode' ? 'Barcode Cabang' : 'Dashboard Student Mentor';
+  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : view === 'branch-barcode' ? 'QR Cabang' : 'Dashboard Student Mentor';
   if (view === 'admin') renderDeviceManagement();
   if (view === 'branch-barcode') renderBranchBarcodes();
   window.scrollTo({ top: 0, behavior: 'smooth' });

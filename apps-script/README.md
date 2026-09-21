@@ -11,7 +11,7 @@ Folder ini berisi backend yang membaca dan menulis Google Sheets tanpa menyimpan
    - `PRESENSI_STAFF_PASSWORD` dengan password Student Mentor.
    - `PRESENSI_ADMIN_PASSWORD` dengan password Admin.
    - `SPREADSHEET_ID` dengan ID Google Sheet sekolah jika berbeda.
-5. Isi sheet `Database Cabang` dan `Siswa Cabang` yang dibuat oleh `setupProperties()`.
+5. Isi sheet `Database Cabang` yang dibuat oleh `setupProperties()`. Pemetaan cabang siswa dapat dilakukan melalui `Siswa Cabang`, atau dengan menambahkan kolom `Nama Cabang` pada `Database Siswa`; nama tersebut akan dicocokkan otomatis ke `Database Cabang` untuk mendapatkan ID cabang.
 6. Pilih **Deploy → New deployment → Web app**.
    - Execute as: **Me**
    - Who has access: **Anyone**

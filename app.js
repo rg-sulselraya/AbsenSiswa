@@ -1,4 +1,5 @@
 import QRCode from 'qrcode';
+import jsQR from 'jsqr';
 
 /*
  * The UI talks to a backend through VITE_ATTENDANCE_API_URL when one is configured.
@@ -54,6 +55,7 @@ let pendingResetStudentId = null;
 let cameraStream = null;
 let barcodeDetector = null;
 let cameraTimer = null;
+let scanCanvas = null;
 
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
@@ -476,12 +478,27 @@ async function activateCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); cameraStream = stream;
     const stage = $('#scanner-stage'); let video = $('#camera-preview');
     if (!video) { video = document.createElement('video'); video.id = 'camera-preview'; video.autoplay = true; video.muted = true; video.playsInline = true; video.style.cssText = 'position:absolute;inset:16px;width:calc(100% - 32px);height:150px;object-fit:cover;border-radius:8px;opacity:.8;z-index:3'; stage.prepend(video); }
-    video.srcObject = stream; $('#camera-button').innerHTML = '<span>■</span> Kamera aktif'; showToast('Kamera aktif. Arahkan barcode ke area pemindaian.');
-    if ('BarcodeDetector' in window) { barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] }); scanVideo(video); } else showToast('Pemindaian otomatis belum didukung browser ini; masukkan ID manual.', 'warn');
+    video.srcObject = stream; $('#camera-button').innerHTML = '<span>■</span> Kamera aktif'; showToast('Kamera aktif. Arahkan QR cabang ke area pemindaian.');
+    if ('BarcodeDetector' in window) barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
+    else barcodeDetector = null;
+    scanCanvas = scanCanvas || document.createElement('canvas'); scanVideo(video);
   } catch { showToast('Izin kamera ditolak. Anda tetap dapat memasukkan ID manual.', 'warn'); }
 }
-async function scanVideo(video) { if (!barcodeDetector || !cameraStream) return; try { const codes = await barcodeDetector.detect(video); if (codes[0]?.rawValue) { processScan(codes[0].rawValue); stopCamera(); return; } } catch { /* continue */ } cameraTimer = setTimeout(() => scanVideo(video), 500); }
-function stopCamera() { cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null; if (cameraTimer) clearTimeout(cameraTimer); }
+async function scanVideo(video) {
+  if (!cameraStream) return;
+  try {
+    let value = '';
+    if (barcodeDetector) {
+      const codes = await barcodeDetector.detect(video); value = codes[0]?.rawValue || '';
+    } else if (video.readyState >= 2) {
+      const width = video.videoWidth; const height = video.videoHeight;
+      if (width && height) { scanCanvas.width = width; scanCanvas.height = height; const context = scanCanvas.getContext('2d', { willReadFrequently: true }); context.drawImage(video, 0, 0, width, height); const result = jsQR(context.getImageData(0, 0, width, height).data, width, height, { inversionAttempts: 'attemptBoth' }); value = result?.data || ''; }
+    }
+    if (value) { processScan(value); stopCamera(); return; }
+  } catch { /* continue scanning */ }
+  cameraTimer = setTimeout(() => scanVideo(video), 300);
+}
+function stopCamera() { cameraStream?.getTracks().forEach((track) => track.stop()); cameraStream = null; if (cameraTimer) clearTimeout(cameraTimer); barcodeDetector = null; }
 
 document.addEventListener('click', (event) => {
   const profileTrigger = event.target.closest('#profile-trigger'); if (profileTrigger) return toggleProfileMenu();

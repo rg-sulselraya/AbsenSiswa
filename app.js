@@ -171,10 +171,18 @@ async function loadBranches() {
 async function loadDeviceBindings() {
   if (!API_BASE) return;
   try {
-    const response = await fetch(apiUrl('device-bindings'));
+    const response = await fetch(apiUrl('device-bindings', { _: Date.now() }), { cache: 'no-store' });
     if (!response.ok) throw new Error('device binding endpoint unavailable');
     const data = await response.json();
-    if (data.bindings && typeof data.bindings === 'object') deviceBindings = data.bindings;
+    if (data.bindings && typeof data.bindings === 'object') {
+      deviceBindings = Object.entries(data.bindings).reduce((result, [id, binding]) => {
+        const key = String(id || binding?.studentId || '').trim();
+        if (!key) return result;
+        result[key] = { ...binding, studentId: String(binding?.studentId || key).trim(), status: String(binding?.status || '').trim().toUpperCase() };
+        return result;
+      }, {});
+      persist();
+    }
   } catch { showToast('Mode binding lokal aktif — hubungkan endpoint device binding untuk validasi server.', 'warn'); }
 }
 

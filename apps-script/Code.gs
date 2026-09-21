@@ -43,7 +43,7 @@ function handle_(e, method) {
       if (route === 'attendance') return json_({ entries: attendanceRows_(e && e.parameter && e.parameter.date) }, e);
       if (route === 'device-bindings') return json_({ bindings: publicBindings_() }, e);
       if (route === 'device-reset-log') return json_({ entries: rows_(sheet_(SHEETS.resetLog)) }, e);
-      if (route === 'wa-status') return json_({ entries: rows_(sheet_(SHEETS.wa)) }, e);
+      if (route === 'wa-status') return json_({ entries: waStatusRows_(e && e.parameter && e.parameter.date) }, e);
     }
     const payload = body_(e);
     if (method === 'POST') {
@@ -114,6 +114,15 @@ function sha256_(value) {
 }
 function iso_(value) { return value instanceof Date ? value.toISOString() : value ? String(value) : ''; }
 function dateKey_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd'); }
+function normalizeDate_(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd');
+  const text = String(value || '').trim();
+  if (!text) return '';
+  const iso = text.match(/^(\d{4}-\d{2}-\d{2})/);
+  if (iso) return iso[1];
+  const parsed = new Date(text);
+  return Number.isNaN(parsed.getTime()) ? text.slice(0, 10) : Utilities.formatDate(parsed, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd');
+}
 
 function students_() {
   const source = sheet_(SHEETS.students); const values = source.getDataRange().getValues();
@@ -230,4 +239,20 @@ function attendanceRows_(requestedDate) {
     return { ...row, Tanggal: date };
   }).filter(row => row.Tanggal === wanted);
 }
-function waStatus_(payload) { const sheet = sheet_(SHEETS.wa); const type = payload.messageType === 'departure' ? 'departure' : 'arrival'; const lastColumn = sheet.getLastColumn(); const headers = headerMap_(sheet); if (headers['jenis wa'] === undefined) sheet.getRange(1, lastColumn + 1).setValue('Jenis WA'); const data = rows_(sheet); const index = data.findIndex(row => String(row['Tanggal']) === String(payload.date) && String(row['ID Siswa']) === String(payload.studentId) && String(row['Jenis WA'] || 'arrival') === type); const values = [payload.date || dateKey_(), payload.studentId || '', payload.status || 'processed', payload.processedAt || '', payload.deliveredAt || '', type]; if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values); return json_({ ok: true }); }
+function waStatusRows_(requestedDate) {
+  const wanted = requestedDate ? normalizeDate_(requestedDate) : '';
+  return rows_(sheet_(SHEETS.wa)).map(row => {
+    const type = String(row['Jenis WA'] || row.messageType || 'arrival').toLowerCase() === 'departure' ? 'departure' : 'arrival';
+    return { ...row, Tanggal: normalizeDate_(row['Tanggal']), 'Jenis WA': type, 'Status WA': String(row['Status WA'] || row.status || 'unprocessed').toLowerCase() || 'unprocessed' };
+  }).filter(row => !wanted || row.Tanggal === wanted);
+}
+function waStatus_(payload) {
+  const sheet = sheet_(SHEETS.wa); const date = normalizeDate_(payload.date || dateKey_()); const type = String(payload.messageType || '').toLowerCase() === 'departure' ? 'departure' : 'arrival';
+  const dateColumn = ensureColumn_(sheet, 'Tanggal'); const studentColumn = ensureColumn_(sheet, 'ID Siswa'); const statusColumn = ensureColumn_(sheet, 'Status WA'); const processedColumn = ensureColumn_(sheet, 'Waktu Diproses'); const deliveredColumn = ensureColumn_(sheet, 'Waktu Terkirim'); const typeColumn = ensureColumn_(sheet, 'Jenis WA');
+  const data = rows_(sheet); const index = data.findIndex(row => normalizeDate_(row['Tanggal']) === date && String(row['ID Siswa'] || '').trim() === String(payload.studentId || '').trim() && (String(row['Jenis WA'] || 'arrival').toLowerCase() === type));
+  const values = Array(Math.max(sheet.getLastColumn(), typeColumn)).fill(''); values[dateColumn - 1] = date; values[studentColumn - 1] = payload.studentId || ''; values[statusColumn - 1] = payload.status || 'processed'; values[processedColumn - 1] = payload.processedAt || ''; values[deliveredColumn - 1] = payload.deliveredAt || ''; values[typeColumn - 1] = type;
+  if (index >= 0) {
+    const rowNumber = index + 2; sheet.getRange(rowNumber, dateColumn).setValue(date); sheet.getRange(rowNumber, studentColumn).setValue(payload.studentId || ''); sheet.getRange(rowNumber, statusColumn).setValue(payload.status || 'processed'); if (payload.processedAt) sheet.getRange(rowNumber, processedColumn).setValue(payload.processedAt); if (payload.deliveredAt) sheet.getRange(rowNumber, deliveredColumn).setValue(payload.deliveredAt); sheet.getRange(rowNumber, typeColumn).setValue(type);
+  } else sheet.appendRow(values);
+  return json_({ ok: true, date, studentId: payload.studentId || '', messageType: type, status: payload.status || 'processed' });
+}

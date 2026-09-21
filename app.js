@@ -122,6 +122,19 @@ function todayRecord(studentId) { return records[`${dateKey()}::${studentId}`] |
 function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank } }; if (value.arrival || value.departure) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank } }; }
 function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : 'arrival']; }
 function saveWaStatus(key, type, value) { const current = normalizeWaStatus(waStatuses[key]); current[type === 'departure' ? 'departure' : 'arrival'] = { ...current[type === 'departure' ? 'departure' : 'arrival'], ...value }; waStatuses[key] = current; return current[type === 'departure' ? 'departure' : 'arrival']; }
+async function syncWaStatus(payload) {
+  if (!API_BASE) return true;
+  try {
+    const response = await fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify(payload), cache: 'no-store' });
+    if (!response.ok) throw new Error(`wa-status endpoint returned ${response.status}`);
+    const data = await response.json();
+    if (data?.ok !== true) throw new Error('wa-status response was not acknowledged');
+    return true;
+  } catch (error) {
+    console.warn('[WA] Sync failed', { message: error.message, studentId: payload.studentId, messageType: payload.messageType });
+    return false;
+  }
+}
 function allRows() { return students.map((student) => { const key = `${dateKey()}::${student.id}`; return { student, record: todayRecord(student.id), wa: normalizeWaStatus(waStatuses[key]) }; }); }
 function branchById(id) { return branches.find((branch) => branch.id.toUpperCase() === String(id).trim().toUpperCase() && branch.status !== 'Nonaktif'); }
 function currentStudent() { return studentSession ? students.find((student) => student.id === studentSession.id) || studentSession : null; }
@@ -159,14 +172,14 @@ async function loadDeviceBindings() {
 async function loadWaStatuses() {
   if (!API_BASE) return;
   try {
-    const response = await fetch(apiUrl('wa-status')); if (!response.ok) return;
+    const response = await fetch(apiUrl('wa-status', { date: dateKey(), _: Date.now() }), { cache: 'no-store' }); if (!response.ok) throw new Error(`wa-status endpoint returned ${response.status}`);
     const data = await response.json();
     (data.entries || []).forEach((entry) => {
       const date = String(entry.Tanggal || entry.date || '').slice(0, 10); const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim(); if (!date || !studentId) return;
-      const type = entry['Jenis WA'] || entry.messageType || 'arrival'; const status = entry['Status WA'] || entry.status || 'unprocessed';
+      const type = String(entry['Jenis WA'] || entry.messageType || 'arrival').toLowerCase() === 'departure' ? 'departure' : 'arrival'; const status = String(entry['Status WA'] || entry.status || 'unprocessed').toLowerCase();
       saveWaStatus(`${date}::${studentId}`, type, { studentId, status, processedAt: entry['Waktu Diproses'] || entry.processedAt || '', deliveredAt: entry['Waktu Terkirim'] || entry.deliveredAt || '' });
     });
-  } catch { /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }
+  } catch (error) { console.warn('[WA] Load failed', { message: error.message }); /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }
 }
 
 async function loadAttendance() {
@@ -495,19 +508,19 @@ function sendWA(studentId, type = 'arrival') {
   const branch = record.branch || student.branch || 'cabang';
   const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${record.date || dateKey()}T00:00:00+08:00`));
   const message = type === 'departure'
-    ? `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\n\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\n\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, agar pemahaman semakin kuat dan materi yang dipelajari dapat lebih mudah diingat. 📚✨\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`
+    ? `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\n\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\n\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, dan menyelesaikan target harian Drill Soal. 📚✨\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`
     : `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* sudah hadir di *Brain Academy ${branch}*\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n\nSemoga ${student.name} dapat mengikuti pembelajaran dengan lancar dan mendapatkan pengalaman belajar yang baik hari ini.\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`;
   const phone = String(student.parentPhone || '').replace(/\D/g, '');
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
   const processedAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'processed', processedAt, studentId: student.id }); persist();
-  if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: student.id, messageType: type, status: 'processed', processedAt }) }).catch(() => {});
+  syncWaStatus({ date: dateKey(), studentId: student.id, messageType: type, status: 'processed', processedAt });
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
   showToast(`WhatsApp ${type === 'departure' ? 'pulang' : 'datang'} untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard();
 }
 
 function openConfirm(studentId, type = 'arrival') { pendingDeliveredId = studentId; pendingDeliveredType = type; $('#confirm-modal').querySelector('p').innerHTML = `Tandai pesan WhatsApp ${type === 'departure' ? 'jam pulang' : 'jam datang'} sebagai sudah terkirim setelah Anda memastikan pesan telah dikirim.`; $('#confirm-modal').hidden = false; }
-function confirmDelivered() { if (!pendingDeliveredId || !pendingDeliveredType) return; const key = `${dateKey()}::${pendingDeliveredId}`; const type = pendingDeliveredType; const deliveredAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'delivered', deliveredAt, studentId: pendingDeliveredId }); persist(); if (API_BASE) fetch(apiUrl('wa-status'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ date: dateKey(), studentId: pendingDeliveredId, messageType: type, status: 'delivered', deliveredAt }) }).catch(() => {}); $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; renderDashboard(); showToast(`Status WA ${type === 'departure' ? 'pulang' : 'datang'} diubah menjadi Sudah Terkirim.`); }
+function confirmDelivered() { if (!pendingDeliveredId || !pendingDeliveredType) return; const key = `${dateKey()}::${pendingDeliveredId}`; const type = pendingDeliveredType; const deliveredAt = new Date().toISOString(); const studentId = pendingDeliveredId; saveWaStatus(key, type, { status: 'delivered', deliveredAt, studentId }); persist(); syncWaStatus({ date: dateKey(), studentId, messageType: type, status: 'delivered', deliveredAt }); $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; renderDashboard(); showToast(`Status WA ${type === 'departure' ? 'pulang' : 'datang'} diubah menjadi Sudah Terkirim.`); }
 
 async function activateCamera() {
   if (!navigator.mediaDevices?.getUserMedia) return showToast('Kamera tidak tersedia di browser ini. Gunakan input ID manual.', 'warn');

@@ -46,6 +46,7 @@ let records = loadJson(STORAGE_KEY, {});
 let waStatuses = loadJson(WA_KEY, {});
 let studentSession = loadJson(SESSION_KEY, null);
 let deviceBindings = loadJson(BINDING_KEY, {});
+let deviceBindingsLoadState = API_BASE ? 'idle' : 'ready';
 let deviceResetLog = loadJson(RESET_LOG_KEY, []);
 let staffSession = loadJson(STAFF_SESSION_KEY, null);
 let authRole = studentSession ? 'student' : staffSession?.role || null;
@@ -176,6 +177,7 @@ async function loadBranches() {
 
 async function loadDeviceBindings() {
   if (!API_BASE) return;
+  deviceBindingsLoadState = 'loading';
   try {
     const response = await fetch(apiUrl('device-bindings', { _: Date.now() }), { cache: 'no-store' });
     if (!response.ok) throw new Error('device binding endpoint unavailable');
@@ -189,7 +191,12 @@ async function loadDeviceBindings() {
       }, {});
       persist();
     }
-  } catch { showToast('Mode binding lokal aktif — hubungkan endpoint device binding untuk validasi server.', 'warn'); }
+    deviceBindingsLoadState = 'ready';
+  } catch (error) {
+    deviceBindingsLoadState = 'error';
+    console.warn('[DEVICE BINDING] Load failed', { message: error?.message || String(error) });
+    showToast('Gagal mengambil data Device Binding. Silakan coba lagi.', 'warn');
+  }
 }
 
 async function loadWaStatuses() {
@@ -412,7 +419,9 @@ function renderClassOptions() {
 function renderDeviceManagement() {
   const query = ($('#device-search').value || '').trim().toLowerCase();
   const statusFilter = $('#device-status-filter').value;
-  const rows = students.map((student) => ({ student, binding: bindingFor(student.id) })).filter(({ student, binding }) => {
+  const loading = API_BASE && deviceBindingsLoadState === 'loading';
+  const failed = API_BASE && deviceBindingsLoadState === 'error';
+  const rows = loading || failed ? [] : students.map((student) => ({ student, binding: bindingFor(student.id) })).filter(({ student, binding }) => {
     const status = binding?.status || 'BELUM_TERDAFTAR';
     return (!query || student.name.toLowerCase().includes(query) || student.id.toLowerCase().includes(query)) && (statusFilter === 'all' || status === statusFilter);
   });
@@ -424,7 +433,16 @@ function renderDeviceManagement() {
     const action = status === 'TERDAFTAR' ? `<button class="wa-action reset-device-action" data-reset-device="${esc(student.id)}">Reset Device</button>` : '<span class="dash">—</span>';
     return `<tr><td><div class="student-cell"><span class="student-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${esc(student.className)}</small></div></div></td><td class="time-cell">${esc(student.id)}</td><td><span class="device-status-badge ${status.toLowerCase().replace(/[^a-z-]/g, '')}">${statusLabel}</span></td><td>${date}</td><td>${action}</td></tr>`;
   }).join('');
-  $('#device-empty').hidden = rows.length !== 0;
+  const empty = $('#device-empty');
+  const emptyTitle = $('#device-empty-title');
+  const emptyCopy = $('#device-empty-copy');
+  if (emptyTitle && emptyCopy) {
+    if (loading) { emptyTitle.textContent = 'Memuat data device...'; emptyCopy.textContent = 'Mengambil data dari Google Sheets.'; }
+    else if (failed) { emptyTitle.textContent = 'Gagal mengambil data Device Binding.'; emptyCopy.textContent = 'Periksa koneksi Apps Script lalu klik Segarkan.'; }
+    else if (!rows.length && statusFilter === 'TERDAFTAR') { emptyTitle.textContent = 'Belum ada device yang terdaftar.'; emptyCopy.textContent = 'Belum ada binding aktif yang cocok dengan filter.'; }
+    else { emptyTitle.textContent = 'Data device tidak ditemukan'; emptyCopy.textContent = 'Coba ubah pencarian atau filter.'; }
+  }
+  empty.hidden = rows.length !== 0;
 }
 
 function openBindModal() { $('#bind-modal').hidden = false; }

@@ -291,11 +291,11 @@ function processScan(rawBranchId) {
   const current = todayRecord(student.id);
   if (!current) {
     const record = saveAttendance(student, 'in');
-    showScanResult(`✅ <b>Presensi berhasil</b><br>Selamat datang, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam datang: <strong>${record.checkIn}</strong>`, 'success');
+    showScanResult(`✅ <b>Scan berhasil — Jam Datang tercatat</b><br>Selamat datang, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam datang: <strong>${record.checkIn}</strong>`, 'success');
     showToast(`${student.name} tercatat Jam Datang ${record.checkIn}`, 'success');
   } else if (!current.checkOut) {
     const record = saveAttendance(student, 'out');
-    showScanResult(`✅ <b>Presensi pulang berhasil</b><br>Sampai jumpa, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam pulang: <strong>${record.checkOut}</strong>`, 'success');
+    showScanResult(`✅ <b>Scan berhasil — Jam Pulang tercatat</b><br>Sampai jumpa, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam pulang: <strong>${record.checkOut}</strong>`, 'success');
     showToast(`${student.name} tercatat Jam Pulang ${record.checkOut}`, 'success');
   } else {
     showScanResult(`ℹ️ <b>Presensi hari ini sudah lengkap.</b><br>Jam datang: <strong>${current.checkIn}</strong><br>Jam pulang: <strong>${current.checkOut}</strong>`, 'warning');
@@ -304,7 +304,7 @@ function processScan(rawBranchId) {
   renderAll();
 }
 
-function showScanResult(html, kind) { const box = $('#scan-result'); box.innerHTML = html; box.className = `scan-result show ${kind}`; }
+function showScanResult(html, kind) { const box = $('#scan-result'); box.innerHTML = html; box.className = `scan-result show ${kind}`; box.setAttribute('role', kind === 'success' ? 'status' : 'alert'); if (kind === 'success') { navigator.vibrate?.(180); requestAnimationFrame(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' })); } }
 function showToast(message, kind = 'success') { const toast = document.createElement('div'); toast.className = `toast ${kind}`; toast.textContent = message; $('#toast-region').append(toast); setTimeout(() => toast.remove(), 3900); }
 
 function renderSummary() {

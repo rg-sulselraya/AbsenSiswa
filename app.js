@@ -87,7 +87,13 @@ function toggleProfileMenu() { const menu = $('#profile-menu'); const trigger = 
 function logoutCurrentAccount() { studentSession = null; staffSession = null; authRole = null; persist(); persistStaffSession(); closeProfileMenu(); stopCamera(); setView('login'); renderProfileIdentity(); showToast('Anda telah keluar dari akun.'); }
 function getDeviceToken() { let token = localStorage.getItem(DEVICE_KEY); if (!token) { token = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_KEY, token); } return token; }
 function hasDeviceToken() { return Boolean(localStorage.getItem(DEVICE_KEY)); }
-function bindingFor(studentId) { return deviceBindings[studentId] || null; }
+function bindingFor(studentId) {
+  const wanted = String(studentId || '').trim().toUpperCase();
+  if (!wanted) return null;
+  if (deviceBindings[studentId]) return deviceBindings[studentId];
+  const match = Object.entries(deviceBindings).find(([id, binding]) => String(id || binding?.studentId || '').trim().toUpperCase() === wanted);
+  return match ? match[1] : null;
+}
 function staffHeaders() { return staffSession?.token && !API_BASE.includes('script.google.com') ? { 'X-Staff-Session': staffSession.token } : {}; }
 function apiUrl(path, query = {}) {
   const params = new URLSearchParams(query);
@@ -457,7 +463,7 @@ function setView(view) {
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#admin-view').classList.toggle('active-view', view === 'admin'); $('#branch-barcode-view').classList.toggle('active-view', view === 'branch-barcode');
   $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : view === 'branch-barcode' ? 'QR Cabang' : 'Dashboard Student Mentor';
-  if (view === 'admin') renderDeviceManagement();
+  if (view === 'admin') { renderDeviceManagement(); loadDeviceBindings().then(renderDeviceManagement); }
   if (view === 'branch-barcode') renderBranchBarcodes();
   window.scrollTo({ top: 0, behavior: 'smooth' });
 }

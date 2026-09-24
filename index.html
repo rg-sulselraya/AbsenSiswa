@@ -18,6 +18,7 @@
         <nav class="main-nav">
           <button class="nav-item active" data-view="scan"><span class="nav-icon">⌁</span><span>Presensi Siswa</span></button>
           <button class="nav-item" data-view="dashboard"><span class="nav-icon">▦</span><span>Dashboard Student Mentor</span></button>
+          <button class="nav-item" data-view="class-summary"><span class="nav-icon">◫</span><span>Rekap Kelas</span></button>
           <button class="nav-item" data-view="admin"><span class="nav-icon">⚙</span><span>Manajemen Device</span></button>
           <button class="nav-item" data-view="branch-barcode" id="branch-barcode-nav" hidden><span class="nav-icon">▦</span><span>QR Cabang</span></button>
         </nav>
@@ -61,6 +62,16 @@
           <p class="privacy-note">Data nomor WhatsApp hanya digunakan untuk mengirim informasi presensi dan tidak ditampilkan di layar.</p>
         </section>
 
+        <section id="class-summary-view" class="view">
+          <div class="page-intro dashboard-intro"><div><p class="eyebrow">REKAP KELAS</p><h1>Rekap Kelas</h1><p class="subcopy">Pantau perangkat, presensi, dan status WhatsApp per kelas · <span id="class-summary-date"></span></p></div><div class="dashboard-actions"><button class="outline-button" id="refresh-class-summary">↻ Segarkan</button></div></div>
+          <div id="class-summary-loading" class="summary-loading" hidden>🔄 Memuat rekap kelas...</div>
+          <div id="class-summary-error" class="summary-error" hidden>Data rekap kelas belum dapat dimuat. Silakan coba lagi.</div>
+          <div id="class-summary-content">
+            <div class="summary-stats-grid" id="class-summary-stats"></div>
+            <div class="table-card card"><div class="table-toolbar"><div><span class="section-kicker">REKAP PER KELAS</span><h2>Kondisi kelas hari ini</h2></div><div class="table-tools"><select id="class-summary-branch-filter"><option value="all">Semua cabang</option></select><select id="class-summary-class-filter"><option value="all">Semua kelas</option></select></div></div><div class="table-wrap"><table class="class-summary-table"><thead><tr><th>KELAS</th><th>TOTAL SISWA</th><th>PERANGKAT TERDAFTAR</th><th>BELUM TERDAFTAR</th><th>HADIR</th><th>BELUM HADIR</th><th>PULANG</th><th>BELUM PULANG</th><th>WA KEHADIRAN</th><th>WA KEPULANGAN</th></tr></thead><tbody id="class-summary-body"></tbody></table><div id="class-summary-empty" class="empty-state" hidden><div>◫</div><b>Data rekap kelas tidak ditemukan</b><span>Coba ubah filter atau segarkan data.</span></div></div></div>
+          </div>
+        </section>
+
         <section id="admin-view" class="view">
           <div class="page-intro dashboard-intro"><div><p class="eyebrow">ADMINISTRASI SISTEM</p><h1>Manajemen Device</h1><p class="subcopy">Kelola satu perangkat terdaftar untuk setiap akun siswa. Reset device tidak menghapus akun maupun presensi.</p></div><div class="dashboard-actions"><button class="outline-button" id="refresh-device-button">↻ Segarkan</button></div></div>
           <div class="device-notice"><span class="info-icon">i</span><div><b>Device binding aktif</b><p>Validasi perangkat harus dilakukan server. Token perangkat adalah identifier aplikasi yang aman, bukan nomor hardware HP.</p></div></div>
@@ -78,6 +89,7 @@
     <div class="modal-backdrop" id="bind-modal" hidden><div class="confirm-modal"><div class="modal-icon">⌁</div><h3>Daftarkan perangkat ini?</h3><p id="bind-modal-copy">Perangkat ini belum terdaftar untuk akun Anda. Satu akun siswa hanya dapat menggunakan satu perangkat.</p><div class="modal-actions"><button class="outline-button" id="bind-cancel">Batal</button><button class="primary-button" id="bind-confirm">Daftarkan perangkat</button></div></div></div>
     <div class="modal-backdrop" id="confirm-modal" hidden><div class="confirm-modal"><div class="modal-icon">✓</div><h3>Ubah status pengiriman?</h3><p>Status akan diubah menjadi <strong>Sudah Terkirim</strong>. Pastikan pesan sudah dikirim melalui WhatsApp.</p><div class="modal-actions"><button class="outline-button" id="modal-cancel">Batal</button><button class="primary-button" id="modal-confirm">Ya, ubah status</button></div></div></div>
     <div class="modal-backdrop" id="reset-device-modal" hidden><div class="confirm-modal"><div class="modal-icon danger">↺</div><h3>Reset perangkat siswa ini?</h3><p id="reset-device-copy">Setelah di-reset, siswa tidak dapat menggunakan perangkat lama sampai melakukan registrasi pada perangkat baru.</p><div class="modal-actions"><button class="outline-button" id="reset-device-cancel">Batal</button><button class="primary-button danger-button" id="reset-device-confirm">Reset Device</button></div></div></div>
+    <div class="modal-backdrop" id="class-detail-modal" hidden><div class="confirm-modal class-detail-modal"><div class="modal-icon">◫</div><h3 id="class-detail-title">Detail Rekap</h3><div id="class-detail-breakdown" class="class-detail-breakdown"></div><div class="detail-search-box"><span>⌕</span><input id="class-detail-search" placeholder="Cari nama siswa..." /></div><div id="class-detail-list" class="class-detail-list"></div><div class="modal-actions"><button class="outline-button" id="class-detail-close">Tutup</button></div></div></div>
     <script type="module" src="./app.js"></script>
   </body>
 </html>

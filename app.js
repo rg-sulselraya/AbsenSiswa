@@ -27,7 +27,7 @@ const BRANCHES = [
   { id: 'CABANG-002', name: 'Panakkukang', status: 'Aktif' },
   { id: 'CABANG-003', name: 'Tamalanrea', status: 'Aktif' },
 ];
-let branches = BRANCHES;
+let branches = API_BASE ? [] : BRANCHES;
 // Read-only preview of the supplied sheet (headers: User Serial, Nama Siswa,
 // No Ortu, Nama Sekolah, Grade, Kelas). Production should load all rows via API.
 const FALLBACK_STUDENTS = [
@@ -42,6 +42,10 @@ const FALLBACK_STUDENTS = [
 ]; 
 
 let students = loadJson(STUDENTS_CACHE_KEY, FALLBACK_STUDENTS);
+let studentsLoadState = API_BASE ? 'loading' : 'ready';
+let branchesLoadState = API_BASE ? 'loading' : 'ready';
+let studentsLoadPromise = null;
+let branchesLoadPromise = null;
 let records = loadJson(STORAGE_KEY, {});
 let waStatuses = loadJson(WA_KEY, {});
 let studentSession = loadJson(SESSION_KEY, null);
@@ -54,6 +58,10 @@ let pendingDeliveredId = null;
 let pendingDeliveredType = null;
 let pendingBindStudent = null;
 let pendingResetStudentId = null;
+let loginInProgress = false;
+let bindInProgress = false;
+let scanInProgress = false;
+let scannerLocked = false;
 let cameraStream = null;
 let barcodeDetector = null;
 let cameraTimer = null;
@@ -69,6 +77,28 @@ const formatAttendanceTime = (value, expectedDate = '') => { const text = String
 const initials = (name) => name.split(' ').slice(0, 2).map((part) => part[0]).join('').toUpperCase();
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 function loadJson(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
+const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
+async function fetchJsonWithRetry(url, options = {}, attempts = 3) {
+  let lastError;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const response = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
+      let data = null;
+      try { data = await response.json(); } catch { /* handled below */ }
+      if (!response.ok) throw new Error(`${options.method || 'GET'} ${url} returned ${response.status}`);
+      if (data === null) throw new Error('Invalid JSON response');
+      return { response, data };
+    } catch (error) {
+      lastError = error;
+      if (attempt < attempts - 1) await wait(attempt === 0 ? 500 : 1000);
+    } finally { clearTimeout(timeout); }
+  }
+  throw lastError || new Error('Request failed');
+}
+function normalizeSearch(value) { return String(value ?? '').trim().toLocaleLowerCase('id-ID').replace(/\s+/g, ' '); }
+function apiDataError(kind) { return kind === 'students' ? 'Data siswa belum tersedia. Periksa koneksi server lalu coba lagi.' : 'Data cabang belum tersedia. Periksa koneksi server lalu coba lagi.'; }
 function persist() { localStorage.setItem(STORAGE_KEY, JSON.stringify(records)); localStorage.setItem(WA_KEY, JSON.stringify(waStatuses)); localStorage.setItem(BINDING_KEY, JSON.stringify(deviceBindings)); localStorage.setItem(RESET_LOG_KEY, JSON.stringify(deviceResetLog)); if (studentSession) localStorage.setItem(SESSION_KEY, JSON.stringify(studentSession)); else localStorage.removeItem(SESSION_KEY); }
 function persistStaffSession() { if (staffSession) localStorage.setItem(STAFF_SESSION_KEY, JSON.stringify(staffSession)); else localStorage.removeItem(STAFF_SESSION_KEY); }
 function profileIdentity() {
@@ -119,7 +149,7 @@ function authErrorMessage(code, role = 'teacher') {
 }
 function studentAuthErrorMessage(code) {
   if (code === 'STUDENT_PASSWORD_REQUIRED') return 'Masukkan password siswa.';
-  if (code === 'STUDENT_AUTH_FAILED') return 'Password siswa salah.';
+  if (code === 'STUDENT_AUTH_FAILED') return 'PIN yang Anda masukkan tidak sesuai.';
   if (code === 'STUDENT_PASSWORD_NOT_CONFIGURED') return 'Password siswa belum dikonfigurasi. Hubungi Student Mentor.';
   if (code === 'AUTH_TIMEOUT') return 'Server autentifikasi siswa terlalu lama merespons.';
   if (code === 'AUTH_INVALID_RESPONSE') return 'Response server autentifikasi siswa tidak valid.';
@@ -153,36 +183,58 @@ async function syncWaStatus(payload) {
   }
 }
 function allRows() { return students.map((student) => { const key = `${dateKey()}::${student.id}`; return { student, record: todayRecord(student.id), wa: normalizeWaStatus(waStatuses[key]) }; }); }
-function branchById(id) { return branches.find((branch) => branch.id.toUpperCase() === String(id).trim().toUpperCase() && branch.status !== 'Nonaktif'); }
+function branchById(id) { const wanted = String(id ?? '').trim().toUpperCase(); return branches.find((branch) => String(branch.id ?? '').trim().toUpperCase() === wanted && String(branch.status ?? '').trim().toLowerCase() !== 'nonaktif'); }
 function currentStudent() { return studentSession ? students.find((student) => student.id === studentSession.id) || studentSession : null; }
 
 async function loadStudents() {
-  if (!API_BASE) return;
-  try {
-    const response = await fetch(apiUrl('students'));
-    if (!response.ok) throw new Error('student endpoint unavailable');
-    const data = await response.json();
-    if (Array.isArray(data.students) && data.students.length) { students = data.students.map((student) => ({ ...student, branchId: student.branchId || student.cabangId || '', branch: student.branch || student.branchName || '' })); localStorage.setItem(STUDENTS_CACHE_KEY, JSON.stringify(students)); }
-  } catch { showToast('Mode demo aktif — sambungkan endpoint Google Sheets untuk data sekolah.', 'warn'); }
+  if (!API_BASE) return students;
+  if (studentsLoadPromise) return studentsLoadPromise;
+  studentsLoadState = 'loading';
+  studentsLoadPromise = (async () => {
+    try {
+      const { data } = await fetchJsonWithRetry(apiUrl('students'));
+      if (!Array.isArray(data.students)) throw new Error('Invalid students response');
+      students = data.students.map((student) => ({ ...student, branchId: String(student.branchId || student.cabangId || '').trim(), branch: String(student.branch || student.branchName || '').trim() })).filter((student) => student.id && student.name);
+      localStorage.setItem(STUDENTS_CACHE_KEY, JSON.stringify(students));
+      studentsLoadState = 'ready';
+      return students;
+    } catch (error) {
+      studentsLoadState = 'error';
+      console.warn('[DATA] Students load failed', { message: error?.message || String(error) });
+      showToast(apiDataError('students'), 'warn');
+      return students;
+    } finally { studentsLoadPromise = null; }
+  })();
+  return studentsLoadPromise;
 }
 
 async function loadBranches() {
-  if (!API_BASE) return;
-  try {
-    const response = await fetch(apiUrl('branches'));
-    if (!response.ok) throw new Error('branch endpoint unavailable');
-    const data = await response.json();
-    if (Array.isArray(data.branches) && data.branches.length) branches = data.branches;
-  } catch { showToast('Master cabang lokal digunakan sampai endpoint cabang tersedia.', 'warn'); }
+  if (!API_BASE) return branches;
+  if (branchesLoadPromise) return branchesLoadPromise;
+  branchesLoadState = 'loading';
+  branchesLoadPromise = (async () => {
+    try {
+      const { data } = await fetchJsonWithRetry(apiUrl('branches'));
+      if (!Array.isArray(data.branches)) throw new Error('Invalid branches response');
+      branches = data.branches.filter((branch) => branch?.id).map((branch) => ({ ...branch, id: String(branch.id).trim(), name: String(branch.name || '').trim(), status: String(branch.status || 'Aktif').trim() }));
+      branchesLoadState = 'ready';
+      renderBranchOptions();
+      return branches;
+    } catch (error) {
+      branchesLoadState = 'error';
+      console.warn('[DATA] Branches load failed', { message: error?.message || String(error) });
+      showToast(apiDataError('branches'), 'warn');
+      return branches;
+    } finally { branchesLoadPromise = null; }
+  })();
+  return branchesLoadPromise;
 }
 
 async function loadDeviceBindings() {
   if (!API_BASE) return;
   deviceBindingsLoadState = 'loading';
   try {
-    const response = await fetch(apiUrl('device-bindings', { _: Date.now() }), { cache: 'no-store' });
-    if (!response.ok) throw new Error('device binding endpoint unavailable');
-    const data = await response.json();
+    const { data } = await fetchJsonWithRetry(apiUrl('device-bindings', { _: Date.now() }));
     if (data.bindings && typeof data.bindings === 'object') {
       deviceBindings = Object.entries(data.bindings).reduce((result, [id, binding]) => {
         const key = String(id || binding?.studentId || '').trim();
@@ -203,8 +255,7 @@ async function loadDeviceBindings() {
 async function loadWaStatuses() {
   if (!API_BASE) return;
   try {
-    const response = await fetch(apiUrl('wa-status', { date: dateKey(), _: Date.now() }), { cache: 'no-store' }); if (!response.ok) throw new Error(`wa-status endpoint returned ${response.status}`);
-    const data = await response.json();
+    const { data } = await fetchJsonWithRetry(apiUrl('wa-status', { date: dateKey(), _: Date.now() }));
     (data.entries || []).forEach((entry) => {
       const date = String(entry.Tanggal || entry.date || '').slice(0, 10); const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim(); if (!date || !studentId) return;
       const type = String(entry['Jenis WA'] || entry.messageType || 'arrival').toLowerCase() === 'departure' ? 'departure' : 'arrival'; const status = String(entry['Status WA'] || entry.status || 'unprocessed').toLowerCase();
@@ -223,9 +274,7 @@ async function loadAttendance() {
   if (!API_BASE) return;
   try {
     const today = dateKey();
-    const response = await fetch(apiUrl('attendance', { date: today }));
-    if (!response.ok) throw new Error(`attendance endpoint returned ${response.status}`);
-    const data = await response.json();
+    const { data } = await fetchJsonWithRetry(apiUrl('attendance', { date: today }));
     const entries = Array.isArray(data.entries) ? data.entries : [];
     entries.forEach((entry) => {
       const date = String(entry.Tanggal || entry.date || '').slice(0, 10);
@@ -264,7 +313,7 @@ async function serverDeviceCheck(student, token) {
     if (data.message && !data.status) return { status: 'error', message: data.message };
     if (!response.ok) return { status: 'error', message: data.message || 'Perangkat tidak dapat divalidasi.' };
     return data;
-  } catch (error) { return { status: 'error', message: error.name === 'AbortError' ? 'Validasi perangkat terlalu lama. Silakan coba lagi.' : 'Server device binding tidak tersedia.' }; } finally { clearTimeout(timeout); }
+  } catch (error) { return { status: 'error', message: error.name === 'AbortError' ? 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Server sedang tidak dapat dihubungi. Silakan coba lagi.' }; } finally { clearTimeout(timeout); }
 }
 
 async function loginStaff(role, password) {
@@ -291,19 +340,33 @@ async function loginStaff(role, password) {
 }
 
 async function bindDevice(student) {
+  if (bindInProgress) return;
+  bindInProgress = true;
+  const button = $('#bind-confirm');
+  const originalButton = button?.innerHTML;
+  const copy = $('#bind-modal-copy');
+  const originalCopy = copy?.textContent;
+  if (button) { button.disabled = true; button.innerHTML = '🔄 Mendaftarkan perangkat...'; }
+  if (copy) copy.textContent = 'Perangkat sedang didaftarkan. Mohon jangan tutup halaman.';
   const token = getDeviceToken();
-  if (tokenWasReset(token)) return showToast('Perangkat lama sudah di-reset. Gunakan perangkat baru atau hubungi Admin.', 'warn');
-  if (tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain.', 'warn');
-  const boundAt = new Date().toISOString();
-  if (API_BASE) {
-    try {
-      const response = await fetch(apiUrl('device-binding/bind'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
-      const data = await response.json();
-      if (!response.ok || data.message) return showToast(data.message || 'Registrasi perangkat ditolak oleh server.', 'warn');
-    } catch { return showToast('Registrasi perangkat gagal karena server tidak tersedia.', 'warn'); }
+  try {
+    if (tokenWasReset(token)) return showToast('Perangkat lama sudah di-reset. Gunakan perangkat baru atau hubungi Admin.', 'warn');
+    if (tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar pada akun siswa lain.', 'warn');
+    const boundAt = new Date().toISOString();
+    if (API_BASE) {
+      try {
+        const response = await fetch(apiUrl('device-binding/bind'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
+        const data = await response.json();
+        if (!response.ok || data.message) return showToast(response.status === 409 ? 'Perangkat ini sudah terdaftar pada akun siswa lain.' : (data.message || 'Perangkat belum berhasil didaftarkan.'), 'warn');
+      } catch { return showToast('Server sedang tidak dapat dihubungi. Silakan coba lagi.', 'warn'); }
+    }
+    deviceBindings[student.id] = { studentId: student.id, studentName: student.name, deviceToken: token, status: 'TERDAFTAR', boundAt, updatedAt: boundAt };
+    persist(); $('#bind-modal').hidden = true; pendingBindStudent = null; completeStudentLogin(student); showToast('✅ Perangkat berhasil didaftarkan.');
+  } finally {
+    bindInProgress = false;
+    if (button) { button.disabled = false; button.innerHTML = originalButton || 'Daftarkan perangkat'; }
+    if (copy && $('#bind-modal').hidden === false) copy.textContent = originalCopy || '';
   }
-  deviceBindings[student.id] = { studentId: student.id, studentName: student.name, deviceToken: token, status: 'TERDAFTAR', boundAt, updatedAt: boundAt };
-  persist(); $('#bind-modal').hidden = true; pendingBindStudent = null; completeStudentLogin(student); showToast('Perangkat berhasil terdaftar untuk akun ini.');
 }
 
 function completeStudentLogin(student) { studentSession = { id: student.id, name: student.name, className: student.className, branch: student.branch, branchId: student.branchId }; staffSession = null; authRole = 'student'; persist(); persistStaffSession(); renderProfileIdentity(); renderSession(); loadAttendance().then(renderAll); }
@@ -322,52 +385,66 @@ async function saveAttendance(student, type, location, branch) {
   if (type === 'in') next.checkIn = time;
   if (type === 'out') { next.checkOut = time; next.status = 'Hadir'; }
   if (API_BASE) {
-    const response = await fetch(apiUrl('attendance'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...next, branchId: branch.id, branch: branch.name, latitude: location.latitude, longitude: location.longitude, deviceToken: getDeviceToken() }) });
-    let data = {}; try { data = await response.json(); } catch { /* handled below */ }
-    if (!response.ok || data.ok !== true) { const error = new Error(data.code || 'ATTENDANCE_REJECTED'); error.serverMessage = data.message; throw error; }
+    const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(apiUrl('attendance'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ ...next, branchId: branch.id, branch: branch.name, latitude: location.latitude, longitude: location.longitude, deviceToken: getDeviceToken() }), signal: controller.signal });
+      let data = {}; try { data = await response.json(); } catch { /* handled below */ }
+      if (!response.ok || data.ok !== true) { const error = new Error(data.code || 'ATTENDANCE_REJECTED'); error.serverMessage = data.message; throw error; }
+    } finally { clearTimeout(timeout); }
   }
   records[key] = next;
   persist();
   return next;
 }
 
-async function processScan(rawBranchId) {
+async function processScanUnlocked(rawBranchId) {
   if (!studentSession) return showScanResult('Silakan login sebagai siswa sebelum melakukan presensi.', 'warning');
+  if (API_BASE && branchesLoadState === 'loading') return showScanResult('⏳ <b>Data cabang sedang dimuat.</b><br>Silakan coba scan kembali sebentar lagi.', 'processing');
+  if (API_BASE && branchesLoadState === 'error') return showScanResult('⚠️ <b>Data cabang tidak tersedia.</b><br>Segarkan halaman lalu coba lagi.', 'warning');
   const branchId = rawBranchId.trim().toUpperCase();
   const branch = branchById(branchId);
   const student = currentStudent();
-  if (!branch) return showScanResult(`QR ${esc(branchId || 'cabang')} tidak dikenal. Presensi tidak dibuat.`, 'warning');
+  if (!branch) return showScanResult('QR Cabang tidak terdaftar.', 'warning');
   if (!student) return showScanResult('Akun siswa tidak ditemukan. Silakan login kembali.', 'warning');
   if ((!API_BASE && !deviceSessionValid(student.id)) || (API_BASE && !hasDeviceToken())) { studentSession = null; authRole = null; persist(); setView('login'); return showScanResult('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warning'); }
   if (student.branchId && student.branchId.toUpperCase() !== branch.id) return showScanResult(`⚠️ <b>QR cabang tidak sesuai dengan data siswa.</b><br>Anda terdaftar di Cabang <strong>${esc(student.branch)}</strong>.`, 'warning');
-  showScanResult('🔎 <b>QR terbaca.</b><br>Memeriksa lokasi dan menyimpan presensi, mohon tunggu…', 'processing');
+  showScanResult(`✅ <b>QR Cabang ditemukan</b><br><strong>${esc(branch.name)}</strong><br>📍 Mendapatkan lokasi Anda…`, 'processing');
   let location;
   try {
     location = await getCurrentLocation();
   } catch (error) {
-    const messages = { GPS_PERMISSION_DENIED: 'Izin lokasi ditolak. Aktifkan GPS dan izinkan lokasi untuk melakukan presensi.', GPS_TIMEOUT: 'Lokasi GPS terlalu lama ditemukan. Pastikan GPS aktif lalu coba lagi.', GPS_UNAVAILABLE: 'Lokasi GPS tidak tersedia. Pastikan layanan lokasi aktif.', GPS_NOT_SUPPORTED: 'Perangkat atau browser ini tidak mendukung validasi GPS.' };
+    const messages = { GPS_PERMISSION_DENIED: 'Izin lokasi diperlukan untuk melakukan presensi.', GPS_TIMEOUT: 'Lokasi GPS terlalu lama ditemukan. Pastikan GPS aktif lalu coba lagi.', GPS_UNAVAILABLE: 'Lokasi GPS tidak tersedia. Pastikan layanan lokasi aktif.', GPS_NOT_SUPPORTED: 'Perangkat atau browser ini tidak mendukung validasi GPS.' };
     return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${messages[error.message] || 'Lokasi GPS tidak dapat divalidasi.'}`, 'warning');
   }
   if (!Number.isFinite(Number(branch.latitude)) || !Number.isFinite(Number(branch.longitude))) return showScanResult('⚠️ <b>Presensi belum dicatat.</b><br>Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', 'warning');
+  showScanResult(`✅ <b>QR Cabang ditemukan</b><br><strong>${esc(branch.name)}</strong><br>📍 Memeriksa jarak dari cabang…<br>🔄 Memproses presensi…<br>Data kehadiran sedang disimpan.`, 'processing');
   const current = todayRecord(student.id);
   try {
   if (!current) {
     const record = await saveAttendance(student, 'in', location.coords, branch);
-    showScanResult(`✅ <b>Scan berhasil — Jam Datang tercatat</b><br>Selamat datang, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam datang: <strong>${record.checkIn}</strong>`, 'success');
+    showScanResult(`🎉 <b>Presensi Jam Datang Berhasil!</b><br><strong>${esc(student.name)}</strong><br>📍 ${esc(branch.name)}<br>🕐 Jam Datang: <strong>${esc(record.checkIn)}</strong> WITA<br>📅 ${dateKey()}`, 'success');
     showToast(`${student.name} tercatat Jam Datang ${record.checkIn}`, 'success');
   } else if (!current.checkOut) {
     const record = await saveAttendance(student, 'out', location.coords, branch);
-    showScanResult(`✅ <b>Scan berhasil — Jam Pulang tercatat</b><br>Sampai jumpa, <strong>${esc(student.name)}</strong><br>Cabang: <strong>${esc(branch.name)}</strong><br>Jam pulang: <strong>${record.checkOut}</strong>`, 'success');
+    showScanResult(`🎉 <b>Presensi Jam Pulang Berhasil!</b><br><strong>${esc(student.name)}</strong><br>📍 ${esc(branch.name)}<br>🕐 Jam Datang: <strong>${esc(record.checkIn)}</strong> WITA<br>🕐 Jam Pulang: <strong>${esc(record.checkOut)}</strong> WITA<br>📅 ${dateKey()}`, 'success');
     showToast(`${student.name} tercatat Jam Pulang ${record.checkOut}`, 'success');
   } else {
     showScanResult(`ℹ️ <b>Presensi hari ini sudah lengkap.</b><br>Jam datang: <strong>${current.checkIn}</strong><br>Jam pulang: <strong>${current.checkOut}</strong>`, 'warning');
   }
   } catch (error) {
-    const messages = { OUTSIDE_BRANCH_RADIUS: error.serverMessage || 'Anda berada di luar radius cabang.', BRANCH_GPS_NOT_CONFIGURED: 'Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', BRANCH_MISMATCH: 'Siswa tidak dapat presensi di cabang ini.' };
-    return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${esc(messages[error.message] || error.serverMessage || 'Presensi ditolak oleh server.')}`, 'warning');
+    const messages = { OUTSIDE_BRANCH_RADIUS: `Anda berada di luar area presensi ${branch.name}.`, BRANCH_GPS_NOT_CONFIGURED: 'Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', BRANCH_MISMATCH: 'Siswa tidak dapat presensi di cabang ini.' };
+    const fallback = error?.name === 'AbortError' ? 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : /fetch|network/i.test(error?.message || '') ? 'Server sedang tidak dapat dihubungi. Silakan coba lagi.' : 'Presensi belum berhasil disimpan. Silakan coba lagi.';
+    return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${esc(messages[error.message] || error.serverMessage || fallback)}`, 'warning');
   }
   $('#barcode-input').value = '';
   renderAll();
+}
+
+async function processScan(rawBranchId) {
+  if (scanInProgress) return;
+  scanInProgress = true;
+  scannerLocked = true;
+  try { return await processScanUnlocked(rawBranchId); } finally { scanInProgress = false; scannerLocked = false; }
 }
 
 function showScanResult(html, kind) { const box = $('#scan-result'); box.innerHTML = html; box.className = `scan-result show ${kind}`; box.setAttribute('role', kind === 'success' || kind === 'processing' ? 'status' : 'alert'); if (kind === 'success') navigator.vibrate?.(180); if (kind === 'success' || kind === 'processing') requestAnimationFrame(() => box.scrollIntoView({ behavior: 'smooth', block: 'center' })); }
@@ -389,17 +466,18 @@ function renderDashboard() {
   const present = rows.filter(({ record }) => record).length;
   const out = rows.filter(({ record }) => record?.checkOut).length;
   $('#stat-total').textContent = rows.length; $('#stat-present').textContent = present; $('#stat-absent').textContent = rows.length - present; $('#stat-out').textContent = out; $('#stat-not-out').textContent = present - out; $('#present-percent').textContent = `${rows.length ? Math.round((present / rows.length) * 100) : 0}%`;
-  const query = ($('#search-input').value || '').trim().toLowerCase();
-  const classValue = $('#class-filter').value; const attendance = $('#attendance-filter').value; const waFilter = $('#wa-filter').value;
+  const query = normalizeSearch($('#search-input').value || '');
+  const branchValue = $('#branch-filter').value; const classValue = $('#class-filter').value; const attendance = $('#attendance-filter').value; const waFilter = $('#wa-filter').value;
   const filtered = rows.filter(({ student, record, wa }) => {
-    const matchQuery = !query || student.name.toLowerCase().includes(query) || student.id.toLowerCase().includes(query);
+    const matchQuery = !query || normalizeSearch(student.name).includes(query) || normalizeSearch(student.id).includes(query);
+    const matchBranch = branchValue === 'all' || String(student.branchId || '').trim().toUpperCase() === String(branchValue).trim().toUpperCase() || normalizeSearch(student.branch) === normalizeSearch(branchValue);
     const matchClass = classValue === 'all' || student.className === classValue;
     const matchAttendance = attendance === 'all' || (attendance === 'present' && record) || (attendance === 'absent' && !record) || (attendance === 'out' && record?.checkOut) || (attendance === 'not-out' && record && !record.checkOut);
     const matchWa = waFilter === 'all' || wa.arrival.status === waFilter || wa.departure.status === waFilter;
-    return matchQuery && matchClass && matchAttendance && matchWa;
+    return matchQuery && matchBranch && matchClass && matchAttendance && matchWa;
   });
   $('#table-total').textContent = rows.length; $('#table-showing').textContent = filtered.length;
-  const activeFilters = [classValue !== 'all', attendance !== 'all', waFilter !== 'all'].filter(Boolean).length; $('#filter-count').textContent = activeFilters; $('#filter-count').classList.toggle('show', activeFilters > 0);
+  const activeFilters = [branchValue !== 'all', classValue !== 'all', attendance !== 'all', waFilter !== 'all'].filter(Boolean).length; $('#filter-count').textContent = activeFilters; $('#filter-count').classList.toggle('show', activeFilters > 0);
   $('#attendance-body').innerHTML = filtered.map(({ student, record, wa }) => {
     const attendanceBadge = !record ? '<span class="attendance-badge absent">Belum Hadir</span>' : record.checkOut ? '<span class="attendance-badge present">Sudah Pulang</span>' : '<span class="attendance-badge not-out">Belum Pulang</span>';
     const waLabel = (type, label, available) => { const status = wa[type].status; const text = status === 'delivered' ? '✓ Sudah Terkirim' : status === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses'; const disabled = !available ? ' disabled' : ''; return `<button class="wa-badge ${status}${disabled}" data-status-id="${esc(student.id)}" data-status-type="${type}"${disabled}>${label}: ${text}</button>`; };
@@ -415,6 +493,15 @@ function renderClassOptions() {
   const classes = [...new Set(students.map((student) => student.className).filter(Boolean))].sort();
   select.innerHTML = '<option value="all">Semua kelas</option>' + classes.map((className) => `<option value="${esc(className)}">${esc(className)}</option>`).join('');
   select.value = classes.includes(current) ? current : 'all';
+}
+
+function renderBranchOptions() {
+  const select = $('#branch-filter');
+  if (!select) return;
+  const current = select.value;
+  const available = [...new Map(branches.filter((branch) => branch?.id && String(branch.status || 'Aktif').toLowerCase() !== 'nonaktif').map((branch) => [String(branch.id).trim().toUpperCase(), branch])).values()];
+  select.innerHTML = '<option value="all">Semua cabang</option>' + available.map((branch) => `<option value="${esc(branch.id)}">${esc(branch.name || branch.id)}</option>`).join('');
+  select.value = available.some((branch) => String(branch.id).toUpperCase() === String(current).toUpperCase()) ? current : 'all';
 }
 
 function renderDeviceManagement() {
@@ -489,14 +576,22 @@ function setView(view) {
 
 function populateStudentAccounts() {
   const select = $('#student-account');
-  const search = String($('#student-search')?.value || '').trim().toLocaleLowerCase('id-ID');
+  const search = normalizeSearch($('#student-search')?.value || '');
   const selected = select.value;
-  const matches = students.filter((student) => !search || `${student.name} ${student.className || ''} ${student.id}`.toLocaleLowerCase('id-ID').includes(search));
+  const results = $('#student-results');
+  if (API_BASE && studentsLoadState === 'loading') {
+    if (results) { results.innerHTML = '<div class="student-result-empty">Memuat data siswa...</div>'; results.hidden = false; $('#student-search').setAttribute('aria-expanded', 'true'); }
+    return;
+  }
+  if (API_BASE && studentsLoadState === 'error') {
+    if (results) { results.innerHTML = '<div class="student-result-empty">Data siswa tidak dapat dimuat. Coba segarkan halaman.</div>'; results.hidden = false; $('#student-search').setAttribute('aria-expanded', 'true'); }
+    return;
+  }
+  const matches = students.filter((student) => !search || `${normalizeSearch(student.name)} ${normalizeSearch(student.className)} ${normalizeSearch(student.id)}`.includes(search));
   select.innerHTML = '<option value="">Pilih nama siswa</option>' + matches.map((student) => `<option value="${esc(student.id)}">${esc(student.name)} · ${esc(student.className || 'Kelas belum diisi')}</option>`).join('');
   select.value = matches.some((student) => student.id === selected) ? selected : '';
   const password = $('#student-password');
   if (password && !select.value) { password.value = ''; password.disabled = true; }
-  const results = $('#student-results');
   if (!results) return;
   if (!search) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); return; }
   const visibleMatches = matches.slice(0, 50);
@@ -536,8 +631,10 @@ async function resumeStudentSession() {
 }
 
 async function loginStudent() {
+  if (API_BASE && studentsLoadState === 'loading') return showToast('Data siswa sedang dimuat. Silakan tunggu sebentar.', 'warn');
+  if (API_BASE && studentsLoadState === 'error') return showToast('Data siswa belum berhasil dimuat. Segarkan halaman lalu coba lagi.', 'warn');
   const student = students.find((item) => item.id === $('#student-account').value);
-  if (!student) return showToast('Pilih akun siswa terlebih dahulu.', 'warn');
+  if (!student) return showToast('Data siswa tidak ditemukan.', 'warn');
   if (!student.branchId) return showToast('Cabang siswa belum dipetakan oleh admin.', 'warn');
   const password = String($('#student-password')?.value || '');
   if (!password) return showToast('Masukkan password siswa.', 'warn');
@@ -545,6 +642,7 @@ async function loginStudent() {
   if (token && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain. Silakan gunakan perangkat yang terdaftar atau hubungi Admin.', 'warn');
   let serverCheck = { status: 'local' };
   if (API_BASE) {
+    setProcessing(true, 'Memproses...', 'Sedang memverifikasi data siswa...');
     const authenticate = (async () => {
       const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS); const endpoint = apiUrl('student/login');
       try {
@@ -555,6 +653,7 @@ async function loginStudent() {
       } catch (error) { const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE'; console.warn('[STUDENT AUTH] Request failed', { endpoint, code }); return { ok: false, code }; }
       finally { clearTimeout(timeout); }
     })();
+    setProcessing(true, 'Memproses...', 'Sedang memeriksa perangkat...');
     const [bindingResult, authResult] = await Promise.all([serverDeviceCheck(student, token), authenticate]);
     serverCheck = bindingResult;
     if (!authResult.ok) return showToast(studentAuthErrorMessage(authResult.code || 'STUDENT_AUTH_FAILED'), 'warn');
@@ -563,7 +662,7 @@ async function loginStudent() {
   }
   $('#student-password').value = '';
   if (serverCheck.status === 'error') return showToast(serverCheck.message, 'warn');
-  if (API_BASE && serverCheck.status === 'TERDAFTAR') { completeStudentLogin(student); showToast(`Selamat datang kembali, ${student.name}.`); return; }
+  if (API_BASE && serverCheck.status === 'TERDAFTAR') { completeStudentLogin(student); showToast('✅ Login berhasil.'); return; }
   if (API_BASE && serverCheck.status === 'BELUM_TERDAFTAR') { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Perangkat ini belum terdaftar untuk akun ${student.name}. Daftarkan perangkat ini? Satu akun siswa hanya dapat menggunakan satu perangkat.`; $('#bind-modal').hidden = false; return; }
   if (API_BASE && serverCheck.status === 'DEVICE_DI_RESET' && token) return showToast(serverCheck.message, 'warn');
   if (API_BASE && serverCheck.status === 'DI-RESET' && !token) { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Binding sebelumnya sudah di-reset oleh Admin. Daftarkan perangkat baru untuk akun ${student.name}?`; $('#bind-modal').hidden = false; return; }
@@ -576,6 +675,12 @@ async function loginStudent() {
   if (!hasDeviceToken()) return showToast('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warn');
   if (binding.deviceToken !== getDeviceToken()) return showToast('Akun ini sudah terdaftar pada perangkat lain. Silakan hubungi Admin untuk melakukan reset perangkat.', 'warn');
   completeStudentLogin(student); showToast(`Selamat datang kembali, ${student.name}.`);
+}
+
+async function startStudentLogin() {
+  if (loginInProgress) return;
+  loginInProgress = true;
+  try { return await loginStudent(); } finally { loginInProgress = false; }
 }
 
 function logoutStudent() { studentSession = null; authRole = null; persist(); stopCamera(); renderProfileIdentity(); $('#scan-result').className = 'scan-result'; setView('login'); showToast('Anda telah keluar dari akun siswa.'); }
@@ -613,7 +718,7 @@ async function activateCamera() {
   } catch { showToast('Izin kamera ditolak. Anda tetap dapat memasukkan ID manual.', 'warn'); }
 }
 async function scanVideo(video) {
-  if (!cameraStream) return;
+  if (!cameraStream || scannerLocked) return;
   try {
     let value = '';
     if (barcodeDetector) {
@@ -622,7 +727,7 @@ async function scanVideo(video) {
       const width = video.videoWidth; const height = video.videoHeight;
       if (width && height) { scanCanvas.width = width; scanCanvas.height = height; const context = scanCanvas.getContext('2d', { willReadFrequently: true }); context.drawImage(video, 0, 0, width, height); const result = jsQR(context.getImageData(0, 0, width, height).data, width, height, { inversionAttempts: 'attemptBoth' }); value = result?.data || ''; }
     }
-    if (value) { stopCamera(); showScanResult('🔎 <b>QR terbaca.</b><br>Memeriksa lokasi dan menyimpan presensi, mohon tunggu…', 'processing'); await processScan(value); return; }
+    if (value) { scannerLocked = true; stopCamera(); await processScan(value); return; }
   } catch { /* continue scanning */ }
   cameraTimer = setTimeout(() => scanVideo(video), 300);
 }
@@ -642,18 +747,18 @@ document.addEventListener('click', (event) => {
   const status = event.target.closest('[data-status-id]'); if (status && !status.disabled && waStatusFor(`${dateKey()}::${status.dataset.statusId}`, status.dataset.statusType).status === 'processed') openConfirm(status.dataset.statusId, status.dataset.statusType);
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
-$('#student-login-submit').addEventListener('click', () => runWithProcessing($('#student-login-submit'), loginStudent, 'Sedang memproses...'));
+$('#student-login-submit').addEventListener('click', () => runWithProcessing($('#student-login-submit'), startStudentLogin, 'Memproses...'));
 $('#student-search').addEventListener('input', () => { $('#student-account').value = ''; $('#student-password').value = ''; $('#student-password').disabled = true; populateStudentAccounts(); });
 $('#teacher-login-submit').addEventListener('click', () => runWithProcessing($('#teacher-login-submit'), () => loginStaff('teacher', $('#teacher-password').value), 'Sedang membuka dashboard...'));
 $('#profile-photo-input').addEventListener('change', (event) => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) return showToast('Pilih file foto yang valid.', 'warn'); if (file.size > 2 * 1024 * 1024) return showToast('Ukuran foto maksimal 2 MB.', 'warn'); const reader = new FileReader(); reader.onload = () => { localStorage.setItem(PROFILE_PHOTO_KEY, String(reader.result)); renderProfileIdentity(); closeProfileMenu(); showToast('Foto profil berhasil diperbarui.'); }; reader.readAsDataURL(file); event.target.value = ''; });
 $('#logout-button').addEventListener('click', logoutStudent);
-$('#bind-cancel').addEventListener('click', cancelBind); $('#bind-confirm').addEventListener('click', () => { if (pendingBindStudent) bindDevice(pendingBindStudent); });
+$('#bind-cancel').addEventListener('click', cancelBind); $('#bind-confirm').addEventListener('click', () => { if (pendingBindStudent) runWithProcessing($('#bind-confirm'), () => bindDevice(pendingBindStudent), 'Mendaftarkan perangkat...'); });
 $('#reset-device-cancel').addEventListener('click', () => { pendingResetStudentId = null; $('#reset-device-modal').hidden = true; }); $('#reset-device-confirm').addEventListener('click', confirmResetDevice);
 $('#clear-input').addEventListener('click', () => { $('#barcode-input').value = ''; $('#barcode-input').focus(); });
 $('#camera-button').addEventListener('click', activateCamera);
-$('#search-input').addEventListener('input', renderDashboard); $('#class-filter').addEventListener('change', renderDashboard); $('#attendance-filter').addEventListener('change', renderDashboard); $('#wa-filter').addEventListener('change', renderDashboard);
+$('#search-input').addEventListener('input', renderDashboard); $('#branch-filter').addEventListener('change', renderDashboard); $('#class-filter').addEventListener('change', renderDashboard); $('#attendance-filter').addEventListener('change', renderDashboard); $('#wa-filter').addEventListener('change', renderDashboard);
 $('#filter-toggle').addEventListener('click', () => $('#filter-row').classList.toggle('show'));
-$('#reset-filter').addEventListener('click', () => { $('#class-filter').value = 'all'; $('#attendance-filter').value = 'all'; $('#wa-filter').value = 'all'; $('#search-input').value = ''; renderDashboard(); });
+$('#reset-filter').addEventListener('click', () => { $('#branch-filter').value = 'all'; $('#class-filter').value = 'all'; $('#attendance-filter').value = 'all'; $('#wa-filter').value = 'all'; $('#search-input').value = ''; renderDashboard(); });
 $('#device-search').addEventListener('input', renderDeviceManagement); $('#device-status-filter').addEventListener('change', renderDeviceManagement); $('#refresh-device-button').addEventListener('click', async (event) => {
   const button = event.currentTarget; if (button.disabled) return;
   const original = button.innerHTML; button.disabled = true; button.setAttribute('aria-busy', 'true'); button.innerHTML = '↻ Memuat...'; deviceBindingsLoadState = 'loading'; renderDeviceManagement();
@@ -676,7 +781,7 @@ window.addEventListener('beforeunload', stopCamera);
 const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
 $('#display-date').textContent = formattedToday;
 if ($('#table-date')) $('#table-date').textContent = formattedToday;
-populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity();
-Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); return resumeStudentSession(); }).catch(() => {});
+populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity();
+Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); return resumeStudentSession(); }).catch(() => {});
 if (staffSession) loadDashboardData();
 renderProfileIdentity();

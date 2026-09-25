@@ -238,7 +238,19 @@ function publicBindings_() { const result = {}; const rows = bindingRows_(); let
 function tokenInUse_(token, exceptId) { const wanted = bindingId_(exceptId); return bindingRows_().some(row => bindingId_(bindingStudentId_(row)) !== wanted && bindingStatus_(row) === 'TERDAFTAR' && bindingDevice_(row) === String(token || '').trim()); }
 function writeRow_(sheet, rowNumber, values) { sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]); }
 function bindingCheck_(payload) { const binding = binding_(payload.studentId); if (tokenInUse_(payload.deviceToken, payload.studentId)) return json_({ status: 'DEVICE_DIPAKAI', message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409); if (!binding) return json_({ status: 'BELUM_TERDAFTAR' }); if (bindingStatus_(binding) === 'DI-RESET') return json_({ status: 'DI-RESET' }); if (!payload.deviceToken) return json_({ status: 'DEVICE_TIDAK_DIkenal', message: 'Perangkat tidak dikenali.' }, null, 409); if (bindingDevice_(binding) !== String(payload.deviceToken).trim()) return json_({ status: 'DEVICE_LAIN', message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409); return json_({ status: 'TERDAFTAR' }); }
-function bindingBind_(payload) { if (!payload.studentId || !payload.deviceToken) return json_({ message: 'studentId dan deviceToken wajib diisi.' }, null, 400); if (tokenInUse_(payload.deviceToken, payload.studentId)) return json_({ message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409); const sheet = sheet_(SHEETS.bindings); const rows = bindingRows_(); const index = bindingIndex_(rows, payload.studentId); const current = index >= 0 ? rows[index] : null; if (current && bindingStatus_(current) === 'TERDAFTAR' && bindingDevice_(current) !== String(payload.deviceToken).trim()) return json_({ message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409); const now = new Date(); const row = [payload.studentId, payload.studentName || bindingName_(current || {}) || '', payload.deviceToken, 'TERDAFTAR', bindingBoundAt_(current || {}) || now, '', now]; if (index >= 0) writeRow_(sheet, index + 2, row); else sheet.appendRow(row); return json_({ status: 'TERDAFTAR' }); }
+function bindingBind_(payload) {
+  if (!payload.studentId || !payload.deviceToken) return json_({ message: 'studentId dan deviceToken wajib diisi.' }, null, 400);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return json_({ message: 'Server sedang memproses pendaftaran perangkat lain. Silakan coba lagi.' }, null, 409);
+  try {
+    if (tokenInUse_(payload.deviceToken, payload.studentId)) return json_({ message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409);
+    const sheet = sheet_(SHEETS.bindings); const rows = bindingRows_(); const index = bindingIndex_(rows, payload.studentId); const current = index >= 0 ? rows[index] : null;
+    if (current && bindingStatus_(current) === 'TERDAFTAR' && bindingDevice_(current) !== String(payload.deviceToken).trim()) return json_({ message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409);
+    const now = new Date(); const row = [payload.studentId, payload.studentName || bindingName_(current || {}) || '', payload.deviceToken, 'TERDAFTAR', bindingBoundAt_(current || {}) || now, '', now];
+    if (index >= 0) writeRow_(sheet, index + 2, row); else sheet.appendRow(row);
+    return json_({ status: 'TERDAFTAR' });
+  } finally { lock.releaseLock(); }
+}
 
 function session_(e) { const token = e && e.parameter && e.parameter.token || ''; return token ? CacheService.getScriptCache().get('staff:' + token) : ''; }
 function staffLogin_(payload) {

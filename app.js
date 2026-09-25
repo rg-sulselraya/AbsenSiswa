@@ -789,11 +789,17 @@ function populateStudentAccounts() {
   const search = normalizeSearch($('#student-search')?.value || '');
   const selected = select.value;
   const results = $('#student-results');
-  if (API_BASE && studentsLoadState === 'loading') {
+  // Do not open a loading dropdown on page load. The cached list remains usable
+  // while the backend refreshes in the background; show loading only after search.
+  if (!search) {
+    if (results) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); }
+    return;
+  }
+  if (API_BASE && studentsLoadState === 'loading' && !students.length) {
     if (results) { results.innerHTML = '<div class="student-result-empty">Memuat data siswa...</div>'; results.hidden = false; $('#student-search').setAttribute('aria-expanded', 'true'); }
     return;
   }
-  if (API_BASE && studentsLoadState === 'error') {
+  if (API_BASE && studentsLoadState === 'error' && !students.length) {
     if (results) { results.innerHTML = '<div class="student-result-empty">Data siswa tidak dapat dimuat. Coba segarkan halaman.</div>'; results.hidden = false; $('#student-search').setAttribute('aria-expanded', 'true'); }
     return;
   }
@@ -803,7 +809,6 @@ function populateStudentAccounts() {
   const password = $('#student-password');
   if (password && !select.value) { password.value = ''; password.disabled = true; }
   if (!results) return;
-  if (!search) { results.hidden = true; $('#student-search').setAttribute('aria-expanded', 'false'); return; }
   const visibleMatches = matches.slice(0, 50);
   results.innerHTML = visibleMatches.length ? visibleMatches.map((student) => `<button type="button" class="student-result" role="option" data-student-id="${esc(student.id)}"><b>${esc(student.name)}</b><small>${esc(student.className || 'Kelas belum diisi')}</small></button>`).join('') : '<div class="student-result-empty">Nama siswa tidak ditemukan.</div>';
   results.hidden = false;

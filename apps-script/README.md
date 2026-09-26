@@ -17,23 +17,6 @@ Folder ini berisi backend yang membaca dan menulis Google Sheets tanpa menyimpan
    - Who has access: **Anyone**
 7. Salin URL yang berakhiran `/exec`.
 
-## Deploy otomatis dari GitHub Actions
-
-Repository ini menyediakan workflow `.github/workflows/deploy-apps-script.yml`.
-Workflow berjalan otomatis setiap push ke `main` yang mengubah folder `apps-script/`, atau dapat dijalankan manual dari tab **Actions**. Workflow melakukan `clasp push` lalu memperbarui deployment Web App yang sudah ada; workflow tidak mengubah isi Google Sheets.
-
-Konfigurasi satu kali di GitHub repository:
-
-1. Di Google Apps Script buka **Project Settings → IDs**, salin **Script ID**.
-2. Pastikan deployment Web App yang dipakai aplikasi sudah ada. ID deployment adalah bagian setelah `/macros/s/` pada URL `/exec` yang sedang digunakan.
-3. Di **Settings → Secrets and variables → Actions → Variables**, buat:
-   - `CLASP_SCRIPT_ID` = Script ID dari Project Settings.
-   - `CLASP_DEPLOYMENT_ID` = ID deployment Web App yang sudah ada.
-4. Di **Settings → Secrets and variables → Actions → Secrets**, buat `CLASP_CREDENTIALS` berisi JSON kredensial OAuth clasp dari komputer yang memiliki akses edit ke project Apps Script. Buat kredensial dengan `clasp login`, lalu salin isi file `.clasprc.json`; jangan commit file tersebut.
-5. Pastikan **Apps Script API** aktif pada akun Google yang memiliki project.
-
-Setelah variabel dan secret tersedia, push ke `main` akan mengirim `Code.gs` dan `appsscript.json` ke project Apps Script serta memperbarui deployment yang sama, sehingga URL `/exec` aplikasi tetap digunakan. Jika salah satu konfigurasi belum ada, workflow berhenti dengan pesan konfigurasi yang jelas dan tidak menjalankan perubahan apa pun.
-
 Sheet `Database Siswa` dibaca tanpa mengubah data. Sheet tambahan yang dibuat:
 `Database Cabang`, `Siswa Cabang`, `Presensi`, `StatusWA`, `Device Binding`, dan `Device Reset Log`.
 

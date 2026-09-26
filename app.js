@@ -22,12 +22,14 @@ const RESET_LOG_KEY = 'ruang-kelas-device-reset-log-v1';
 const STAFF_SESSION_KEY = 'ruang-kelas-staff-session-v1';
 const PROFILE_PHOTO_KEY = 'ruang-kelas-profile-photo-v1';
 const STUDENTS_CACHE_KEY = 'ruang-kelas-students-cache-v1';
+const BRANCHES_CACHE_KEY = 'ruang-kelas-branches-cache-v1';
 const BRANCHES = [
   { id: 'CABANG-001', name: 'Hertasning', status: 'Aktif' },
   { id: 'CABANG-002', name: 'Panakkukang', status: 'Aktif' },
   { id: 'CABANG-003', name: 'Tamalanrea', status: 'Aktif' },
 ];
-let branches = API_BASE ? [] : BRANCHES;
+const cachedBranches = loadJson(BRANCHES_CACHE_KEY, null);
+let branches = API_BASE ? (Array.isArray(cachedBranches) ? cachedBranches : []) : BRANCHES;
 // Read-only preview of the supplied sheet (headers: User Serial, Nama Siswa,
 // No Ortu, Nama Sekolah, Grade, Kelas). Production should load all rows via API.
 const FALLBACK_STUDENTS = [
@@ -41,9 +43,12 @@ const FALLBACK_STUDENTS = [
   { id: 'NAFISAHRORJ8JEXA', name: 'Nafisah Daneen Mawali', className: '9 SMP R3.01', branch: 'Tamalanrea', branchId: 'CABANG-003', grade: '9 SMP', parentPhone: '' },
 ]; 
 
-let students = loadJson(STUDENTS_CACHE_KEY, FALLBACK_STUDENTS);
-let studentsLoadState = API_BASE ? 'loading' : 'ready';
-let branchesLoadState = API_BASE ? 'loading' : 'ready';
+const cachedStudents = loadJson(STUDENTS_CACHE_KEY, null);
+// Never show prototype fallback accounts when a real API is configured. A
+// previously fetched cache is safe to use while the fresh request completes.
+let students = API_BASE ? (Array.isArray(cachedStudents) ? cachedStudents : []) : (cachedStudents || FALLBACK_STUDENTS);
+let studentsLoadState = API_BASE ? (students.length ? 'ready' : 'loading') : 'ready';
+let branchesLoadState = API_BASE ? (branches.length ? 'ready' : 'loading') : 'ready';
 let studentsLoadPromise = null;
 let branchesLoadPromise = null;
 let records = loadJson(STORAGE_KEY, {});
@@ -81,11 +86,11 @@ const initials = (name) => name.split(' ').slice(0, 2).map((part) => part[0]).jo
 const esc = (value) => String(value ?? '').replace(/[&<>'"]/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[char]));
 function loadJson(key, fallback) { try { return JSON.parse(localStorage.getItem(key)) || fallback; } catch { return fallback; } }
 const wait = (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds));
-async function fetchJsonWithRetry(url, options = {}, attempts = 3) {
+async function fetchJsonWithRetry(url, options = {}, attempts = 3, timeoutMs = 12000) {
   let lastError;
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 12000);
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
     try {
       const response = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
       let data = null;
@@ -99,6 +104,16 @@ async function fetchJsonWithRetry(url, options = {}, attempts = 3) {
     } finally { clearTimeout(timeout); }
   }
   throw lastError || new Error('Request failed');
+}
+async function fetchJsonWithTimeout(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
+    let data = null;
+    try { data = await response.json(); } catch { /* handled by caller */ }
+    return { response, data };
+  } finally { clearTimeout(timeout); }
 }
 function normalizeSearch(value) { return String(value ?? '').trim().toLocaleLowerCase('id-ID').replace(/\s+/g, ' '); }
 function apiDataError(kind) { return kind === 'students' ? 'Data siswa belum tersedia. Periksa koneksi server lalu coba lagi.' : 'Data cabang belum tersedia. Periksa koneksi server lalu coba lagi.'; }
@@ -152,11 +167,21 @@ function authErrorMessage(code, role = 'teacher') {
 }
 function studentAuthErrorMessage(code) {
   if (code === 'STUDENT_PASSWORD_REQUIRED') return 'Masukkan password siswa.';
-  if (code === 'STUDENT_AUTH_FAILED') return 'PIN yang Anda masukkan tidak sesuai.';
+  if (code === 'STUDENT_AUTH_FAILED') return 'Nama siswa atau PIN tidak sesuai.';
   if (code === 'STUDENT_PASSWORD_NOT_CONFIGURED') return 'Password siswa belum dikonfigurasi. Hubungi Student Mentor.';
-  if (code === 'AUTH_TIMEOUT') return 'Server autentifikasi siswa terlalu lama merespons.';
+  if (code === 'AUTH_TIMEOUT') return 'Login membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.';
   if (code === 'AUTH_INVALID_RESPONSE') return 'Response server autentifikasi siswa tidak valid.';
-  return 'Server autentifikasi siswa tidak tersedia. Silakan coba lagi.';
+  if (code === 'AUTH_UNAVAILABLE' || code === 'SERVER_ERROR') return 'Server sedang mengalami kendala. Silakan coba lagi.';
+  return 'Server sedang mengalami kendala. Silakan coba lagi.';
+}
+function deviceErrorMessage(status, fallback = '') {
+  const normalized = String(status || '').toUpperCase();
+  if (normalized === 'DEVICE_DIPAKAI') return 'Perangkat ini sudah terdaftar untuk siswa lain.';
+  if (normalized === 'DEVICE_LAIN') return 'Akun ini sudah terdaftar pada perangkat lain.';
+  if (normalized === 'DI-RESET' || normalized === 'DEVICE_DI_RESET') return fallback || 'Perangkat ini sudah di-reset. Silakan daftarkan perangkat baru.';
+  if (normalized === 'DEVICE_TIDAK_DIkenal'.toUpperCase()) return 'Perangkat tidak dikenali. Silakan daftarkan perangkat terlebih dahulu.';
+  if (/TIMEOUT/i.test(fallback)) return 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.';
+  return fallback && !/undefined|null|fetch failed|500|server error/i.test(String(fallback)) ? fallback : 'Server sedang mengalami kendala. Silakan coba lagi.';
 }
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
@@ -196,7 +221,7 @@ async function loadStudents() {
   studentsLoadState = 'loading';
   studentsLoadPromise = (async () => {
     try {
-      const { data } = await fetchJsonWithRetry(apiUrl('students'));
+      const { data } = await fetchJsonWithRetry(apiUrl('students'), {}, 2, 8000);
       if (!Array.isArray(data.students)) throw new Error('Invalid students response');
       students = data.students.map((student) => ({ ...student, branchId: String(student.branchId || student.cabangId || '').trim(), branch: String(student.branch || student.branchName || '').trim() })).filter((student) => student.id && student.name);
       localStorage.setItem(STUDENTS_CACHE_KEY, JSON.stringify(students));
@@ -218,9 +243,10 @@ async function loadBranches() {
   branchesLoadState = 'loading';
   branchesLoadPromise = (async () => {
     try {
-      const { data } = await fetchJsonWithRetry(apiUrl('branches'));
+      const { data } = await fetchJsonWithRetry(apiUrl('branches'), {}, 2, 8000);
       if (!Array.isArray(data.branches)) throw new Error('Invalid branches response');
       branches = data.branches.filter((branch) => branch?.id).map((branch) => ({ ...branch, id: String(branch.id).trim(), name: String(branch.name || '').trim(), status: String(branch.status || 'Aktif').trim() }));
+      localStorage.setItem(BRANCHES_CACHE_KEY, JSON.stringify(branches));
       branchesLoadState = 'ready';
       renderBranchOptions();
       return branches;
@@ -311,14 +337,12 @@ async function loadAttendance() {
 
 async function serverDeviceCheck(student, token) {
   if (!API_BASE) return { status: 'local' };
-  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 10000);
   try {
-    const response = await fetch(apiUrl('device-binding/check'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }), signal: controller.signal });
-    const data = await response.json();
-    if (data.message && !data.status) return { status: 'error', message: data.message };
-    if (!response.ok) return { status: 'error', message: data.message || 'Perangkat tidak dapat divalidasi.' };
+    const { response, data } = await fetchJsonWithTimeout(apiUrl('device-binding/check'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) }, 10000);
+    if (!data || (data.message && !data.status)) return { status: 'error', message: deviceErrorMessage('', data?.message) };
+    if (!response.ok) return { status: 'error', message: deviceErrorMessage(data.status, data.message) };
     return data;
-  } catch (error) { return { status: 'error', message: error.name === 'AbortError' ? 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Server sedang tidak dapat dihubungi. Silakan coba lagi.' }; } finally { clearTimeout(timeout); }
+  } catch (error) { return { status: 'error', message: error.name === 'AbortError' ? 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Server sedang mengalami kendala. Silakan coba lagi.' }; }
 }
 
 async function loginStaff(role, password) {
@@ -360,10 +384,9 @@ async function bindDevice(student) {
     const boundAt = new Date().toISOString();
     if (API_BASE) {
       try {
-        const response = await fetch(apiUrl('device-binding/bind'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) });
-        const data = await response.json();
-        if (!response.ok || data.message) return showToast(response.status === 409 ? 'Perangkat ini sudah terdaftar pada akun siswa lain.' : (data.message || 'Perangkat belum berhasil didaftarkan.'), 'warn');
-      } catch { return showToast('Server sedang tidak dapat dihubungi. Silakan coba lagi.', 'warn'); }
+        const { response, data } = await fetchJsonWithTimeout(apiUrl('device-binding/bind'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) }, 12000);
+        if (!response.ok || !data || data.message || data.status !== 'TERDAFTAR') return showToast(response.status === 409 ? deviceErrorMessage('DEVICE_DIPAKAI') : 'Perangkat belum berhasil didaftarkan. Silakan coba lagi.', 'warn');
+      } catch (error) { return showToast(error?.name === 'AbortError' ? 'Pendaftaran perangkat terlalu lama. Silakan coba lagi.' : 'Server sedang mengalami kendala. Silakan coba lagi.', 'warn'); }
     }
     deviceBindings[student.id] = { studentId: student.id, studentName: student.name, deviceToken: token, status: 'TERDAFTAR', boundAt, updatedAt: boundAt };
     persist(); $('#bind-modal').hidden = true; pendingBindStudent = null; completeStudentLogin(student); showToast('✅ Perangkat berhasil didaftarkan.');
@@ -404,16 +427,17 @@ async function saveAttendance(student, type, location, branch) {
 
 async function processScanUnlocked(rawBranchId) {
   if (!studentSession) return showScanResult('Silakan login sebagai siswa sebelum melakukan presensi.', 'warning');
-  if (API_BASE && branchesLoadState === 'loading') return showScanResult('⏳ <b>Data cabang sedang dimuat.</b><br>Silakan coba scan kembali sebentar lagi.', 'processing');
-  if (API_BASE && branchesLoadState === 'error') return showScanResult('⚠️ <b>Data cabang tidak tersedia.</b><br>Segarkan halaman lalu coba lagi.', 'warning');
-  const branchId = rawBranchId.trim().toUpperCase();
+  if (API_BASE && branchesLoadState === 'loading' && !branches.length) return showScanResult('⏳ <b>Data cabang sedang dimuat.</b><br>Silakan coba scan kembali sebentar lagi.', 'processing');
+  if (API_BASE && branchesLoadState === 'error' && !branches.length) return showScanResult('⚠️ <b>Data cabang tidak tersedia.</b><br>Segarkan halaman lalu coba lagi.', 'warning');
+  const branchId = String(rawBranchId || '').trim().toUpperCase();
+  if (!branchId) return showScanResult('❌ <b>QR Cabang tidak valid.</b><br>Silakan arahkan kamera ke QR cabang atau masukkan ID cabang.', 'warning');
   const branch = branchById(branchId);
   const student = currentStudent();
-  if (!branch) return showScanResult('QR Cabang tidak terdaftar.', 'warning');
+  if (!branch) return showScanResult('❌ <b>Cabang pada QR tidak terdaftar.</b><br>Pastikan Anda menggunakan QR cabang yang benar.', 'warning');
   if (!student) return showScanResult('Akun siswa tidak ditemukan. Silakan login kembali.', 'warning');
   if ((!API_BASE && !deviceSessionValid(student.id)) || (API_BASE && !hasDeviceToken())) { studentSession = null; authRole = null; persist(); setView('login'); return showScanResult('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warning'); }
-  if (student.branchId && student.branchId.toUpperCase() !== branch.id) return showScanResult(`⚠️ <b>QR cabang tidak sesuai dengan data siswa.</b><br>Anda terdaftar di Cabang <strong>${esc(student.branch)}</strong>.`, 'warning');
-  showScanResult(`✅ <b>QR Cabang ditemukan</b><br><strong>${esc(branch.name)}</strong><br>📍 Mendapatkan lokasi Anda…`, 'processing');
+  if (student.branchId && student.branchId.toUpperCase() !== branch.id) return showScanResult(`❌ <b>QR ini bukan QR cabang yang sesuai dengan lokasi presensi.</b><br>Anda terdaftar di Cabang <strong>${esc(student.branch)}</strong>.`, 'warning');
+  showScanResult(`🔄 <b>Memeriksa QR Cabang…</b><br>✅ QR Cabang ditemukan: <strong>${esc(branch.name)}</strong><br>📍 Mendapatkan lokasi Anda…`, 'processing');
   let location;
   try {
     location = await getCurrentLocation();
@@ -422,7 +446,7 @@ async function processScanUnlocked(rawBranchId) {
     return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${messages[error.message] || 'Lokasi GPS tidak dapat divalidasi.'}`, 'warning');
   }
   if (!Number.isFinite(Number(branch.latitude)) || !Number.isFinite(Number(branch.longitude))) return showScanResult('⚠️ <b>Presensi belum dicatat.</b><br>Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', 'warning');
-  showScanResult(`✅ <b>QR Cabang ditemukan</b><br><strong>${esc(branch.name)}</strong><br>📍 Memeriksa jarak dari cabang…<br>🔄 Memproses presensi…<br>Data kehadiran sedang disimpan.`, 'processing');
+  showScanResult(`✅ <b>QR Cabang ditemukan: ${esc(branch.name)}</b><br>✅ Lokasi diperoleh<br>📍 Memeriksa jarak dari cabang…<br>🔄 Memproses presensi…<br>Data kehadiran sedang disimpan.`, 'processing');
   const current = todayRecord(student.id);
   try {
   if (!current) {
@@ -439,7 +463,7 @@ async function processScanUnlocked(rawBranchId) {
   } catch (error) {
     const messages = { OUTSIDE_BRANCH_RADIUS: `Anda berada di luar area presensi ${branch.name}.`, BRANCH_GPS_NOT_CONFIGURED: 'Koordinat GPS cabang belum dikonfigurasi. Hubungi Student Mentor.', BRANCH_MISMATCH: 'Siswa tidak dapat presensi di cabang ini.' };
     const fallback = error?.name === 'AbortError' ? 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : /fetch|network/i.test(error?.message || '') ? 'Server sedang tidak dapat dihubungi. Silakan coba lagi.' : 'Presensi belum berhasil disimpan. Silakan coba lagi.';
-    return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${esc(messages[error.message] || error.serverMessage || fallback)}`, 'warning');
+    return showScanResult(`⚠️ <b>Presensi belum dicatat.</b><br>${esc(messages[error.message] || fallback)}`, 'warning');
   }
   $('#barcode-input').value = '';
   renderAll();
@@ -846,8 +870,8 @@ async function resumeStudentSession() {
 }
 
 async function loginStudent() {
-  if (API_BASE && studentsLoadState === 'loading') return showToast('Data siswa sedang dimuat. Silakan tunggu sebentar.', 'warn');
-  if (API_BASE && studentsLoadState === 'error') return showToast('Data siswa belum berhasil dimuat. Segarkan halaman lalu coba lagi.', 'warn');
+  if (API_BASE && studentsLoadState === 'loading' && !students.length) return showToast('Data siswa sedang dimuat. Silakan tunggu sebentar.', 'warn');
+  if (API_BASE && studentsLoadState === 'error' && !students.length) return showToast('Data siswa belum berhasil dimuat. Segarkan halaman lalu coba lagi.', 'warn');
   const student = students.find((item) => item.id === $('#student-account').value);
   if (!student) return showToast('Data siswa tidak ditemukan.', 'warn');
   if (!student.branchId) return showToast('Cabang siswa belum dipetakan oleh admin.', 'warn');
@@ -857,7 +881,7 @@ async function loginStudent() {
   if (token && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain. Silakan gunakan perangkat yang terdaftar atau hubungi Admin.', 'warn');
   let serverCheck = { status: 'local' };
   if (API_BASE) {
-    setProcessing(true, 'Memproses...', 'Sedang memverifikasi data siswa...');
+    setProcessing(true, 'Memproses...', 'Sedang memverifikasi data siswa dan memeriksa perangkat...');
     const authenticate = (async () => {
       const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), AUTH_TIMEOUT_MS); const endpoint = apiUrl('student/login');
       try {
@@ -868,7 +892,6 @@ async function loginStudent() {
       } catch (error) { const code = error?.name === 'AbortError' ? 'AUTH_TIMEOUT' : 'AUTH_UNAVAILABLE'; console.warn('[STUDENT AUTH] Request failed', { endpoint, code }); return { ok: false, code }; }
       finally { clearTimeout(timeout); }
     })();
-    setProcessing(true, 'Memproses...', 'Sedang memeriksa perangkat...');
     const [bindingResult, authResult] = await Promise.all([serverDeviceCheck(student, token), authenticate]);
     serverCheck = bindingResult;
     if (!authResult.ok) return showToast(studentAuthErrorMessage(authResult.code || 'STUDENT_AUTH_FAILED'), 'warn');

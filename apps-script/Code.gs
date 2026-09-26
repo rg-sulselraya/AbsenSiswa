@@ -270,6 +270,11 @@ function staffValidate_(e) { const role = session_(e); return role ? json_({ suc
 function bindingReset_(e, payload) { const role = session_(e); if (role !== 'teacher' && role !== 'admin') return json_({ message: 'Hanya Student Mentor yang dapat melakukan Reset Device.' }, null, 403); const bindingSheet = sheet_(SHEETS.bindings); const rows = bindingRows_(); const index = bindingIndex_(rows, payload.studentId); const current = index >= 0 ? rows[index] : null; if (!current) return json_({ message: 'Binding siswa tidak ditemukan.' }, null, 404); const now = new Date(); writeRow_(bindingSheet, index + 2, [bindingStudentId_(current), bindingName_(current), '', 'DI-RESET', bindingBoundAt_(current), now, now]); sheet_(SHEETS.resetLog).appendRow(['RESET-' + Date.now(), bindingStudentId_(current), bindingName_(current), now, 'Student Mentor', payload.reason || 'Reset Device', 'DI-RESET', bindingDevice_(current)]); return json_({ status: 'DI-RESET' }); }
 
 function attendance_(payload) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return json_({ ok: false, code: 'ATTENDANCE_BUSY', message: 'Presensi sedang diproses. Silakan tunggu sebentar.' }, null, 409);
+  try { return attendanceUnlocked_(payload); } finally { lock.releaseLock(); }
+}
+function attendanceUnlocked_(payload) {
   const branch = branchById_(payload.branchId); if (!branch) return json_({ ok: false, code: 'BRANCH_NOT_FOUND', message: 'Cabang presensi tidak ditemukan.' }, null, 400);
   const mappedBranchId = studentBranchId_(payload.studentId); if (!mappedBranchId || String(mappedBranchId).toUpperCase() !== String(payload.branchId || '').toUpperCase()) return json_({ ok: false, code: 'BRANCH_MISMATCH', message: 'Siswa tidak dapat presensi di cabang ini.' }, null, 403);
   if (!Number.isFinite(branch.latitude) || !Number.isFinite(branch.longitude)) return json_({ ok: false, code: 'BRANCH_GPS_NOT_CONFIGURED', message: 'Koordinat GPS cabang belum dikonfigurasi.' }, null, 503);

@@ -1,4 +1,5 @@
 node_modules
+.clasp.json
 dist
 .env
 .DS_Store

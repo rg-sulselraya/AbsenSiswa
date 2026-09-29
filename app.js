@@ -65,6 +65,7 @@ let pendingBindStudent = null;
 let pendingResetStudentId = null;
 let loginInProgress = false;
 let bindInProgress = false;
+let resumeInProgress = false;
 let scanInProgress = false;
 let scannerLocked = false;
 let classSummaryRowsState = [];
@@ -136,11 +137,12 @@ function toggleProfileMenu() { const menu = $('#profile-menu'); const trigger = 
 function logoutCurrentAccount() { studentSession = null; staffSession = null; authRole = null; persist(); persistStaffSession(); closeProfileMenu(); stopCamera(); setView('login'); renderProfileIdentity(); showToast('Anda telah keluar dari akun.'); }
 function getDeviceToken() { let token = localStorage.getItem(DEVICE_KEY); if (!token) { token = crypto.randomUUID ? crypto.randomUUID() : `device-${Date.now()}-${Math.random().toString(36).slice(2)}`; localStorage.setItem(DEVICE_KEY, token); } return token; }
 function hasDeviceToken() { return Boolean(localStorage.getItem(DEVICE_KEY)); }
+function normalizeStudentId(value) { return String(value ?? '').trim().toUpperCase(); }
+function normalizeDeviceToken(value) { return String(value ?? '').trim().toLowerCase(); }
 function bindingFor(studentId) {
-  const wanted = String(studentId || '').trim().toUpperCase();
+  const wanted = normalizeStudentId(studentId);
   if (!wanted) return null;
-  if (deviceBindings[studentId]) return deviceBindings[studentId];
-  const match = Object.entries(deviceBindings).find(([id, binding]) => String(id || binding?.studentId || '').trim().toUpperCase() === wanted);
+  const match = Object.entries(deviceBindings).find(([id, binding]) => normalizeStudentId(id || binding?.studentId) === wanted);
   return match ? match[1] : null;
 }
 function bindingStatus(binding) { const raw = String(binding?.status || '').trim().toLowerCase(); if (/reset|revoke|nonaktif|inactive|disabled/.test(raw)) return 'DI-RESET'; if (binding?.deviceToken || binding?.deviceId || /terdaftar|registered|aktif|active/.test(raw)) return 'TERDAFTAR'; return 'BELUM_TERDAFTAR'; }
@@ -176,15 +178,16 @@ function studentAuthErrorMessage(code) {
 }
 function deviceErrorMessage(status, fallback = '') {
   const normalized = String(status || '').toUpperCase();
-  if (normalized === 'DEVICE_DIPAKAI') return 'Perangkat ini sudah terdaftar untuk siswa lain.';
-  if (normalized === 'DEVICE_LAIN') return 'Akun ini sudah terdaftar pada perangkat lain.';
+  if (normalized === 'DEVICE_DIPAKAI' || normalized === 'DEVICE_REGISTERED_TO_OTHER_STUDENT') return 'Perangkat ini sudah terdaftar untuk siswa lain.';
+  if (normalized === 'DEVICE_LAIN' || normalized === 'DEVICE_MISMATCH') return 'Perangkat ini tidak terdaftar untuk akun siswa tersebut.';
+  if (normalized === 'DUPLICATE_BINDING' || normalized === 'DUPLICATE_ACTIVE_BINDING') return 'Data perangkat akun ini memiliki lebih dari satu pendaftaran aktif. Silakan hubungi Admin.';
   if (normalized === 'DI-RESET' || normalized === 'DEVICE_DI_RESET') return fallback || 'Perangkat ini sudah di-reset. Silakan daftarkan perangkat baru.';
   if (normalized === 'DEVICE_TIDAK_DIkenal'.toUpperCase()) return 'Perangkat tidak dikenali. Silakan daftarkan perangkat terlebih dahulu.';
   if (/TIMEOUT/i.test(fallback)) return 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.';
   return fallback && !/undefined|null|fetch failed|500|server error/i.test(String(fallback)) ? fallback : 'Server sedang mengalami kendala. Silakan coba lagi.';
 }
-function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = localStorage.getItem(DEVICE_KEY); return Boolean(binding?.status === 'TERDAFTAR' && token && binding.deviceToken === token); }
-function tokenBelongsToAnotherStudent(studentId, token) { return Boolean(token && Object.entries(deviceBindings).some(([id, binding]) => id !== studentId && binding.status === 'TERDAFTAR' && binding.deviceToken === token)); }
+function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = normalizeDeviceToken(localStorage.getItem(DEVICE_KEY)); return Boolean(binding?.status === 'TERDAFTAR' && token && normalizeDeviceToken(binding.deviceToken) === token); }
+function tokenBelongsToAnotherStudent(studentId, token) { const wanted = normalizeStudentId(studentId); const currentToken = normalizeDeviceToken(token); return Boolean(currentToken && Object.entries(deviceBindings).some(([id, binding]) => normalizeStudentId(id || binding?.studentId) !== wanted && binding.status === 'TERDAFTAR' && normalizeDeviceToken(binding.deviceToken) === currentToken)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
 function todayRecord(studentId) {
   const record = records[`${dateKey()}::${studentId}`];
@@ -267,9 +270,9 @@ async function loadDeviceBindings() {
     const { data } = await fetchJsonWithRetry(apiUrl('device-bindings', { _: Date.now() }));
     if (data.bindings && typeof data.bindings === 'object') {
       deviceBindings = Object.entries(data.bindings).reduce((result, [id, binding]) => {
-        const key = String(id || binding?.studentId || '').trim();
+        const key = normalizeStudentId(id || binding?.studentId);
         if (!key) return result;
-        result[key] = { ...binding, studentId: String(binding?.studentId || key).trim(), status: String(binding?.status || '').trim().toUpperCase() };
+        result[key] = { ...binding, studentId: key, status: String(binding?.status || '').trim().toUpperCase() };
         return result;
       }, {});
       persist();
@@ -337,12 +340,19 @@ async function loadAttendance() {
 
 async function serverDeviceCheck(student, token) {
   if (!API_BASE) return { status: 'local' };
+  const startedAt = Date.now();
+  console.info('[DEVICE_CHECK_START]', { studentId: normalizeStudentId(student?.id), tokenAvailable: Boolean(token) });
   try {
     const { response, data } = await fetchJsonWithTimeout(apiUrl('device-binding/check'), { method: 'POST', headers: requestHeaders(), body: JSON.stringify({ studentId: student.id, deviceToken: token || null }) }, 10000);
-    if (!data || (data.message && !data.status)) return { status: 'error', message: deviceErrorMessage('', data?.message) };
-    if (!response.ok) return { status: 'error', message: deviceErrorMessage(data.status, data.message) };
-    return data;
-  } catch (error) { return { status: 'error', message: error.name === 'AbortError' ? 'Proses membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Server sedang mengalami kendala. Silakan coba lagi.' }; }
+    if (!data || (data.message && !data.status)) return { status: 'DEVICE_CHECK_ERROR', message: 'Tidak dapat memeriksa status perangkat. Silakan coba lagi.' };
+    const status = String(data.status || '').trim().toUpperCase();
+    const resultStatus = { TERDAFTAR: 'DEVICE_REGISTERED', BELUM_TERDAFTAR: 'DEVICE_NOT_REGISTERED', DI_RESET: 'DEVICE_RESET', 'DI-RESET': 'DEVICE_RESET', DEVICE_DIPAKAI: 'DEVICE_REGISTERED_TO_OTHER_STUDENT', DEVICE_LAIN: 'DEVICE_MISMATCH', DEVICE_TIDAK_DIKENAL: 'DEVICE_MISMATCH', DUPLICATE_BINDING: 'DUPLICATE_ACTIVE_BINDING', DUPLICATE_ACTIVE_BINDING: 'DUPLICATE_ACTIVE_BINDING' }[status] || '';
+    if (!response.ok && !resultStatus) return { status: 'DEVICE_CHECK_ERROR', message: deviceErrorMessage(status, data.message) };
+    if (!resultStatus) return { status: 'DEVICE_CHECK_ERROR', message: 'Tidak dapat memeriksa status perangkat. Silakan coba lagi.' };
+    const result = { ...data, status: resultStatus };
+    console.info('[DEVICE_CHECK_RESULT]', { studentId: normalizeStudentId(student.id), status: resultStatus, durationMs: Date.now() - startedAt });
+    return result;
+  } catch (error) { const timeout = error?.name === 'AbortError'; console.warn('[DEVICE_CHECK_ERROR]', { studentId: normalizeStudentId(student?.id), type: timeout ? 'timeout' : 'network', durationMs: Date.now() - startedAt }); return { status: timeout ? 'DEVICE_CHECK_TIMEOUT' : 'DEVICE_CHECK_ERROR', message: timeout ? 'Pemeriksaan perangkat membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Tidak dapat memeriksa status perangkat. Silakan coba lagi.' }; }
 }
 
 async function loginStaff(role, password) {
@@ -378,17 +388,21 @@ async function bindDevice(student) {
   if (button) { button.disabled = true; button.innerHTML = '🔄 Mendaftarkan perangkat...'; }
   if (copy) copy.textContent = 'Perangkat sedang didaftarkan. Mohon jangan tutup halaman.';
   const token = getDeviceToken();
+  console.info('[REGISTER_DEVICE_START]', { studentId: normalizeStudentId(student?.id), tokenAvailable: Boolean(token) });
   try {
     if (tokenWasReset(token)) return showToast('Perangkat lama sudah di-reset. Gunakan perangkat baru atau hubungi Admin.', 'warn');
-    if (tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar pada akun siswa lain.', 'warn');
+    if (!API_BASE && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar pada akun siswa lain.', 'warn');
     const boundAt = new Date().toISOString();
     if (API_BASE) {
       try {
         const { response, data } = await fetchJsonWithTimeout(apiUrl('device-binding/bind'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId: student.id, deviceToken: token, studentName: student.name }) }, 12000);
-        if (!response.ok || !data || data.message || data.status !== 'TERDAFTAR') return showToast(response.status === 409 ? deviceErrorMessage('DEVICE_DIPAKAI') : 'Perangkat belum berhasil didaftarkan. Silakan coba lagi.', 'warn');
+        if (!response.ok || !data || data.message || data.status !== 'TERDAFTAR') return showToast(response.status === 409 ? deviceErrorMessage(data?.status || 'DEVICE_DIPAKAI', data?.message) : 'Perangkat belum berhasil didaftarkan. Silakan coba lagi.', 'warn');
       } catch (error) { return showToast(error?.name === 'AbortError' ? 'Pendaftaran perangkat terlalu lama. Silakan coba lagi.' : 'Server sedang mengalami kendala. Silakan coba lagi.', 'warn'); }
     }
+    const verified = await serverDeviceCheck(student, token);
+    if (API_BASE && verified.status !== 'DEVICE_REGISTERED') return showToast('Perangkat sedang diproses. Silakan coba lagi setelah beberapa saat.', 'warn');
     deviceBindings[student.id] = { studentId: student.id, studentName: student.name, deviceToken: token, status: 'TERDAFTAR', boundAt, updatedAt: boundAt };
+    console.info('[REGISTER_DEVICE_RESULT]', { studentId: normalizeStudentId(student.id), status: 'DEVICE_REGISTERED' });
     persist(); $('#bind-modal').hidden = true; pendingBindStudent = null; completeStudentLogin(student); showToast('✅ Perangkat berhasil didaftarkan.');
   } finally {
     bindInProgress = false;
@@ -861,12 +875,20 @@ function renderSession() {
   setView('scan'); renderSummary();
 }
 
-async function resumeStudentSession() {
+async function resumeStudentSessionImpl() {
   if (!studentSession) return setView('login');
   if (!hasDeviceToken()) { studentSession = null; authRole = null; persist(); showToast('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warn'); return setView('login'); }
-  if (API_BASE) { const student = currentStudent(); const result = await serverDeviceCheck(student, localStorage.getItem(DEVICE_KEY)); if (result.status !== 'TERDAFTAR') { studentSession = null; authRole = null; persist(); return setView('login'); } }
+  if (API_BASE) { const student = currentStudent(); const result = await serverDeviceCheck(student, normalizeDeviceToken(localStorage.getItem(DEVICE_KEY))); if (result.status === 'DEVICE_CHECK_ERROR' || result.status === 'DEVICE_CHECK_TIMEOUT') { showToast(result.message || 'Server belum dapat dihubungi. Sesi Anda dipertahankan, silakan coba lagi.', 'warn'); return setView('login'); } if (result.status !== 'DEVICE_REGISTERED') { studentSession = null; authRole = null; persist(); return setView('login'); } }
   else if (!deviceSessionValid(studentSession.id)) { studentSession = null; authRole = null; persist(); return setView('login'); }
   renderSession();
+}
+
+async function resumeStudentSession() {
+  if (resumeInProgress) return;
+  resumeInProgress = true;
+  console.info('[SESSION_RESUME_START]');
+  try { return await resumeStudentSessionImpl(); }
+  finally { resumeInProgress = false; console.info('[SESSION_RESUME_RESULT]', { authenticated: Boolean(studentSession) }); }
 }
 
 async function loginStudent() {
@@ -878,7 +900,7 @@ async function loginStudent() {
   const password = String($('#student-password')?.value || '');
   if (!password) return showToast('Masukkan password siswa.', 'warn');
   const token = localStorage.getItem(DEVICE_KEY);
-  if (token && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain. Silakan gunakan perangkat yang terdaftar atau hubungi Admin.', 'warn');
+  if (!API_BASE && token && tokenBelongsToAnotherStudent(student.id, token)) return showToast('Perangkat ini sudah terdaftar untuk akun siswa lain. Silakan gunakan perangkat yang terdaftar atau hubungi Admin.', 'warn');
   let serverCheck = { status: 'local' };
   if (API_BASE) {
     setProcessing(true, 'Memproses...', 'Sedang memverifikasi data siswa dan memeriksa perangkat...');
@@ -899,11 +921,12 @@ async function loginStudent() {
     serverCheck = await serverDeviceCheck(student, token);
   }
   $('#student-password').value = '';
-  if (serverCheck.status === 'error') return showToast(serverCheck.message, 'warn');
-  if (API_BASE && serverCheck.status === 'TERDAFTAR') { completeStudentLogin(student); showToast('✅ Login berhasil.'); return; }
-  if (API_BASE && serverCheck.status === 'BELUM_TERDAFTAR') { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Perangkat ini belum terdaftar untuk akun ${student.name}. Daftarkan perangkat ini? Satu akun siswa hanya dapat menggunakan satu perangkat.`; $('#bind-modal').hidden = false; return; }
-  if (API_BASE && serverCheck.status === 'DEVICE_DI_RESET' && token) return showToast(serverCheck.message, 'warn');
-  if (API_BASE && serverCheck.status === 'DI-RESET' && !token) { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Binding sebelumnya sudah di-reset oleh Admin. Daftarkan perangkat baru untuk akun ${student.name}?`; $('#bind-modal').hidden = false; return; }
+  if (API_BASE && ['DEVICE_CHECK_ERROR', 'DEVICE_CHECK_TIMEOUT'].includes(serverCheck.status)) return showToast(serverCheck.message, 'warn');
+  if (API_BASE && serverCheck.status === 'DEVICE_REGISTERED') { completeStudentLogin(student); showToast('✅ Login berhasil.'); return; }
+  if (API_BASE && serverCheck.status === 'DEVICE_NOT_REGISTERED') { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Perangkat ini belum terdaftar untuk akun ${student.name}. Daftarkan perangkat ini? Satu akun siswa hanya dapat menggunakan satu perangkat.`; $('#bind-modal').hidden = false; return; }
+  if (API_BASE && serverCheck.status === 'DEVICE_RESET') { if (token) return showToast('Perangkat lama sudah di-reset. Gunakan perangkat baru atau hubungi Admin.', 'warn'); pendingBindStudent = student; $('#bind-modal-copy').textContent = `Binding sebelumnya sudah di-reset oleh Admin. Daftarkan perangkat baru untuk akun ${student.name}?`; $('#bind-modal').hidden = false; return; }
+  if (API_BASE && ['DEVICE_MISMATCH', 'DEVICE_REGISTERED_TO_OTHER_STUDENT', 'DUPLICATE_ACTIVE_BINDING'].includes(serverCheck.status)) return showToast(deviceErrorMessage(serverCheck.status, serverCheck.message), 'warn');
+  if (API_BASE) return showToast('Tidak dapat memeriksa status perangkat. Silakan coba lagi.', 'warn');
   const binding = bindingFor(student.id);
   if (!binding) { pendingBindStudent = student; $('#bind-modal-copy').textContent = `Perangkat ini belum terdaftar untuk akun ${student.name}. Daftarkan perangkat ini? Satu akun siswa hanya dapat menggunakan satu perangkat.`; $('#bind-modal').hidden = false; return; }
   if (binding.status === 'DI-RESET') {
@@ -911,7 +934,7 @@ async function loginStudent() {
     pendingBindStudent = student; $('#bind-modal-copy').textContent = `Binding sebelumnya sudah di-reset oleh Admin. Daftarkan perangkat baru untuk akun ${student.name}?`; $('#bind-modal').hidden = false; return;
   }
   if (!hasDeviceToken()) return showToast('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warn');
-  if (binding.deviceToken !== getDeviceToken()) return showToast('Akun ini sudah terdaftar pada perangkat lain. Silakan hubungi Admin untuk melakukan reset perangkat.', 'warn');
+  if (normalizeDeviceToken(binding.deviceToken) !== normalizeDeviceToken(getDeviceToken())) return showToast('Akun ini sudah terdaftar pada perangkat lain. Silakan hubungi Admin untuk melakukan reset perangkat.', 'warn');
   completeStudentLogin(student); showToast(`Selamat datang kembali, ${student.name}.`);
 }
 

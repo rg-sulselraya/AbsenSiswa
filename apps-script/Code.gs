@@ -152,7 +152,7 @@ function studentLogin_(payload) {
   const password = String(payload.password || '');
   if (!studentId || !password) return json_({ success: false, authenticated: false, code: 'STUDENT_PASSWORD_REQUIRED', message: 'Password siswa wajib diisi.' }, null, 400);
   const source = sheet_(SHEETS.students); const values = source.getDataRange().getValues(); const map = headerMap_(source);
-  const row = values.slice(1).find(item => String(value_(item, map, 'User Serial', 'ID Siswa', 'id') || '').trim() === studentId);
+  const row = values.slice(1).find(item => bindingId_(value_(item, map, 'User Serial', 'ID Siswa', 'id')) === bindingId_(studentId));
   if (!row) return json_({ success: false, authenticated: false, code: 'STUDENT_AUTH_FAILED', message: 'Password siswa salah.' }, null, 401);
   const storedHash = String(value_(row, map, 'PIN Hash', 'Password Hash', 'Password Siswa Hash', 'Kata Sandi Hash') || '').trim().toLowerCase();
   const storedPassword = String(value_(row, map, 'Password', 'Password Siswa', 'Kata Sandi') || '');
@@ -228,24 +228,43 @@ function bindingTime_(value) { if (value instanceof Date) return value.getTime()
 function bindingStudentId_(row) { return String(bindingField_(row, 'ID Siswa', 'User Serial', 'Student ID', 'studentId', 'id siswa', 'id') || '').trim(); }
 function bindingName_(row) { return String(bindingField_(row, 'Nama Siswa', 'Student Name', 'studentName', 'nama siswa', 'name') || '').trim(); }
 function bindingDevice_(row) { return String(bindingField_(row, 'Device Token', 'Device ID', 'DeviceId', 'device_token', 'device_id', 'deviceToken') || '').trim(); }
+function bindingToken_(value) { return String(value || '').trim().toLowerCase(); }
 function bindingStatus_(row) { const raw = String(bindingField_(row, 'Status', 'Device Status', 'Binding Status', 'status') || '').trim().toLowerCase(); if (/reset|revoke|nonaktif|inactive|disabled/.test(raw)) return 'DI-RESET'; if (bindingDevice_(row) || /terdaftar|registered|aktif|active/.test(raw)) return 'TERDAFTAR'; return raw ? raw.toUpperCase() : 'BELUM_TERDAFTAR'; }
 function bindingBoundAt_(row) { return bindingField_(row, 'Tanggal Bind', 'Terdaftar Sejak', 'Registered At', 'Bound At', 'registeredAt', 'boundAt'); }
 function bindingResetAt_(row) { return bindingField_(row, 'Tanggal Reset', 'Reset At', 'resetAt'); }
 function bindingUpdatedAt_(row) { return bindingField_(row, 'Updated At', 'Diperbarui', 'updatedAt'); }
 function bindingIndex_(rows, studentId) { const wanted = bindingId_(studentId); let index = -1; let latest = -1; rows.forEach((row, rowIndex) => { if (bindingId_(bindingStudentId_(row)) !== wanted) return; const updated = bindingTime_(bindingUpdatedAt_(row) || bindingBoundAt_(row)); if (updated >= latest) { latest = updated; index = rowIndex; } }); return index; }
+function bindingFromRows_(rows, studentId) { const index = bindingIndex_(rows, studentId); return index >= 0 ? rows[index] : null; }
 function binding_(studentId) { const rows = bindingRows_(); const index = bindingIndex_(rows, studentId); return index >= 0 ? rows[index] : null; }
 function publicBindings_() { const result = {}; const rows = bindingRows_(); let active = 0; rows.forEach((row, index) => { const id = bindingStudentId_(row); if (!id || bindingIndex_(rows, id) !== index) return; const status = bindingStatus_(row); if (status === 'TERDAFTAR') active += 1; result[id] = { studentId: id, studentName: bindingName_(row), status, boundAt: iso_(bindingBoundAt_(row)), resetAt: iso_(bindingResetAt_(row)), updatedAt: iso_(bindingUpdatedAt_(row)) }; }); console.info('[DEVICE BINDING] Sheets rows: %s, bindings: %s, active devices: %s', rows.length, Object.keys(result).length, active); return result; }
-function tokenInUse_(token, exceptId) { const wanted = bindingId_(exceptId); return bindingRows_().some(row => bindingId_(bindingStudentId_(row)) !== wanted && bindingStatus_(row) === 'TERDAFTAR' && bindingDevice_(row) === String(token || '').trim()); }
+function tokenInUseRows_(rows, token, exceptId) { const wanted = bindingId_(exceptId); const device = bindingToken_(token); return Boolean(device) && rows.some(row => bindingId_(bindingStudentId_(row)) !== wanted && bindingStatus_(row) === 'TERDAFTAR' && bindingToken_(bindingDevice_(row)) === device); }
+function tokenInUse_(token, exceptId) { return tokenInUseRows_(bindingRows_(), token, exceptId); }
 function writeRow_(sheet, rowNumber, values) { sheet.getRange(rowNumber, 1, 1, values.length).setValues([values]); }
-function bindingCheck_(payload) { const binding = binding_(payload.studentId); if (tokenInUse_(payload.deviceToken, payload.studentId)) return json_({ status: 'DEVICE_DIPAKAI', message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409); if (!binding) return json_({ status: 'BELUM_TERDAFTAR' }); if (bindingStatus_(binding) === 'DI-RESET') return json_({ status: 'DI-RESET' }); if (!payload.deviceToken) return json_({ status: 'DEVICE_TIDAK_DIkenal', message: 'Perangkat tidak dikenali.' }, null, 409); if (bindingDevice_(binding) !== String(payload.deviceToken).trim()) return json_({ status: 'DEVICE_LAIN', message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409); return json_({ status: 'TERDAFTAR' }); }
+function bindingCheck_(payload) {
+  const rows = bindingRows_();
+  const studentId = String(payload.studentId || '').trim();
+  const deviceToken = String(payload.deviceToken || '').trim();
+  const binding = bindingFromRows_(rows, studentId);
+  const activeRows = rows.filter(row => bindingId_(bindingStudentId_(row)) === bindingId_(studentId) && bindingStatus_(row) === 'TERDAFTAR');
+  if (activeRows.length > 1) {
+    console.warn('[DEVICE BINDING] Duplicate active records for student: ' + bindingId_(studentId) + ' (' + activeRows.length + ')');
+    return json_({ status: 'DUPLICATE_ACTIVE_BINDING', message: 'Terdapat lebih dari satu binding aktif untuk siswa ini.' }, null, 409);
+  }
+  if (tokenInUseRows_(rows, deviceToken, studentId)) return json_({ status: 'DEVICE_DIPAKAI', message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409);
+  if (!binding) return json_({ status: 'BELUM_TERDAFTAR' });
+  if (bindingStatus_(binding) === 'DI-RESET') return json_({ status: 'DI-RESET' });
+  if (!deviceToken) return json_({ status: 'DEVICE_TIDAK_DIkenal', message: 'Perangkat tidak dikenali.' }, null, 409);
+  if (bindingToken_(bindingDevice_(binding)) !== bindingToken_(deviceToken)) return json_({ status: 'DEVICE_LAIN', message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409);
+  return json_({ status: 'TERDAFTAR' });
+}
 function bindingBind_(payload) {
   if (!payload.studentId || !payload.deviceToken) return json_({ message: 'studentId dan deviceToken wajib diisi.' }, null, 400);
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) return json_({ message: 'Server sedang memproses pendaftaran perangkat lain. Silakan coba lagi.' }, null, 409);
   try {
     if (tokenInUse_(payload.deviceToken, payload.studentId)) return json_({ message: 'Perangkat ini sudah terdaftar untuk akun siswa lain.' }, null, 409);
-    const sheet = sheet_(SHEETS.bindings); const rows = bindingRows_(); const index = bindingIndex_(rows, payload.studentId); const current = index >= 0 ? rows[index] : null;
-    if (current && bindingStatus_(current) === 'TERDAFTAR' && bindingDevice_(current) !== String(payload.deviceToken).trim()) return json_({ message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409);
+    const sheet = sheet_(SHEETS.bindings); const rows = bindingRows_(); const activeRows = rows.filter(row => bindingId_(bindingStudentId_(row)) === bindingId_(payload.studentId) && bindingStatus_(row) === 'TERDAFTAR'); if (activeRows.length > 1) return json_({ status: 'DUPLICATE_ACTIVE_BINDING', message: 'Terdapat lebih dari satu binding aktif untuk siswa ini.' }, null, 409); const index = bindingIndex_(rows, payload.studentId); const current = index >= 0 ? rows[index] : null;
+    if (current && bindingStatus_(current) === 'TERDAFTAR' && bindingToken_(bindingDevice_(current)) !== bindingToken_(payload.deviceToken)) return json_({ message: 'Akun ini sudah terdaftar pada perangkat lain.' }, null, 409);
     const now = new Date(); const row = [payload.studentId, payload.studentName || bindingName_(current || {}) || '', payload.deviceToken, 'TERDAFTAR', bindingBoundAt_(current || {}) || now, '', now];
     if (index >= 0) writeRow_(sheet, index + 2, row); else sheet.appendRow(row);
     return json_({ status: 'TERDAFTAR' });

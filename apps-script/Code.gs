@@ -53,6 +53,7 @@ function handle_(e, method) {
       if (route === 'device-binding/check') return bindingCheck_(payload);
       if (route === 'device-binding/bind') return bindingBind_(payload);
       if (route === 'device-binding/reset') return bindingReset_(e, payload);
+      if (route === 'staff/attendance-scan') return staffAttendanceScan_(e, payload);
       if (route === 'attendance') return attendance_(payload);
       if (route === 'wa-status') return waStatus_(payload);
     }
@@ -287,6 +288,34 @@ function staffLogin_(payload) {
 }
 function staffValidate_(e) { const role = session_(e); return role ? json_({ success: true, authenticated: true, staff: { role }, role }) : json_({ success: false, authenticated: false, code: 'AUTH_SESSION_INVALID', message: 'Sesi staf tidak valid.' }, null, 401); }
 function bindingReset_(e, payload) { const role = session_(e); if (role !== 'teacher' && role !== 'admin') return json_({ message: 'Hanya Student Mentor yang dapat melakukan Reset Device.' }, null, 403); const bindingSheet = sheet_(SHEETS.bindings); const rows = bindingRows_(); const index = bindingIndex_(rows, payload.studentId); const current = index >= 0 ? rows[index] : null; if (!current) return json_({ message: 'Binding siswa tidak ditemukan.' }, null, 404); const now = new Date(); writeRow_(bindingSheet, index + 2, [bindingStudentId_(current), bindingName_(current), '', 'DI-RESET', bindingBoundAt_(current), now, now]); sheet_(SHEETS.resetLog).appendRow(['RESET-' + Date.now(), bindingStudentId_(current), bindingName_(current), now, 'Student Mentor', payload.reason || 'Reset Device', 'DI-RESET', bindingDevice_(current)]); return json_({ status: 'DI-RESET' }); }
+
+function staffAttendanceScan_(e, payload) {
+  const role = session_(e);
+  if (role !== 'teacher' && role !== 'admin') return json_({ ok: false, code: 'STAFF_SESSION_INVALID', message: 'Sesi Wali Kelas tidak valid.' }, null, 401);
+  const studentId = String(payload.studentId || '').trim();
+  if (!studentId) return json_({ ok: false, code: 'BARCODE_INVALID', message: 'Barcode siswa tidak valid.' }, null, 400);
+  const student = students_().find(item => bindingId_(item.id) === bindingId_(studentId));
+  if (!student) return json_({ ok: false, code: 'STUDENT_NOT_FOUND', message: 'Barcode siswa tidak dikenali.' }, null, 404);
+  if (!student.branchId) return json_({ ok: false, code: 'ACCESS_SCOPE_INVALID', message: 'Siswa tidak memiliki pemetaan cabang.' }, null, 403);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(10000)) return json_({ ok: false, code: 'ATTENDANCE_BUSY', message: 'Presensi sedang diproses. Silakan coba lagi.' }, null, 409);
+  try {
+    const sheet = sheet_(SHEETS.attendance); const data = rows_(sheet); const date = dateKey_();
+    const index = data.findIndex(row => normalizeDate_(row['Tanggal']) === date && bindingId_(row['ID Siswa']) === bindingId_(student.id));
+    const current = index >= 0 ? data[index] : null; const serverTime = Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+    if (!current || !String(current['Jam Datang'] || '').trim()) {
+      const values = [date, student.id, student.name, student.className, student.branchId, student.branch, serverTime, '', 'Belum Pulang'];
+      if (index >= 0) writeRow_(sheet, index + 2, values); else sheet.appendRow(values);
+      return json_({ ok: true, action: 'CHECK_IN', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: serverTime, date });
+    }
+    if (!String(current['Jam Pulang'] || '').trim()) {
+      const values = [date, student.id, student.name, student.className, student.branchId, student.branch, current['Jam Datang'], serverTime, 'Hadir'];
+      writeRow_(sheet, index + 2, values);
+      return json_({ ok: true, action: 'CHECK_OUT', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: String(current['Jam Datang']), checkOut: serverTime, date });
+    }
+    return json_({ ok: true, action: 'COMPLETE', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: String(current['Jam Datang']), checkOut: String(current['Jam Pulang']), date });
+  } finally { lock.releaseLock(); }
+}
 
 function attendance_(payload) {
   const lock = LockService.getScriptLock();

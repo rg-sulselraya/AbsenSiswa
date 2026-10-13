@@ -127,10 +127,15 @@ function profileIdentity() {
 }
 function renderProfileIdentity() {
   const wrap = $('.profile-menu-wrap'); const authenticated = Boolean(studentSession || staffSession || ['teacher', 'admin'].includes(authRole)); if (wrap) wrap.hidden = !authenticated; if (!authenticated) closeProfileMenu();
-  const branchBarcodeNav = $('#branch-barcode-nav'); if (branchBarcodeNav) branchBarcodeNav.hidden = !['teacher', 'admin'].includes(authRole);
+  updateRoleNavigation();
   const identity = profileIdentity(); const name = $('#profile-name'); const role = $('#profile-role'); const avatar = $('#profile-avatar'); if (!name || !role || !avatar) return;
   name.textContent = identity.name; role.textContent = identity.role;
   const photo = localStorage.getItem(PROFILE_PHOTO_KEY); avatar.textContent = photo ? '' : identity.initials; avatar.style.backgroundImage = photo ? `url("${photo}")` : ''; avatar.classList.toggle('has-photo', Boolean(photo));
+}
+function updateRoleNavigation() {
+  const isStaff = ['teacher', 'admin'].includes(authRole) || Boolean(staffSession);
+  const branchNav = $('#branch-barcode-nav'); if (branchNav) branchNav.hidden = !['teacher', 'admin'].includes(authRole);
+  const scanNav = $('[data-view="scan"]'); if (scanNav) scanNav.textContent = isStaff ? '⌁ Scan Presensi Siswa' : '⌁ Presensi Siswa';
 }
 function closeProfileMenu() { const menu = $('#profile-menu'); const trigger = $('#profile-trigger'); if (!menu || !trigger) return; menu.hidden = true; trigger.setAttribute('aria-expanded', 'false'); }
 function toggleProfileMenu() { const menu = $('#profile-menu'); const trigger = $('#profile-trigger'); if (!menu || !trigger) return; menu.hidden = !menu.hidden; trigger.setAttribute('aria-expanded', String(!menu.hidden)); }
@@ -439,7 +444,28 @@ async function saveAttendance(student, type, location, branch) {
   return next;
 }
 
+async function processStaffAttendanceScan(rawStudentId) {
+  const studentId = String(rawStudentId || '').trim();
+  if (!staffSession || !studentId) return showScanResult('❌ <b>Barcode tidak dikenali.</b><br>Pastikan siswa menunjukkan barcode yang benar.', 'warning');
+  showScanResult('🔄 <b>Memeriksa barcode siswa...</b><br>🔄 Memvalidasi akses cabang dan kelas...', 'processing');
+  const controller = new AbortController(); const timeout = setTimeout(() => controller.abort(), 15000);
+  try {
+    const response = await fetch(staffUrl('staff/attendance-scan'), { method: 'POST', headers: requestHeaders(staffHeaders()), body: JSON.stringify({ studentId }), signal: controller.signal });
+    let data = null; try { data = await response.json(); } catch { data = null; }
+    if (!response.ok || !data?.ok) {
+      const code = data?.code || '';
+      const message = code === 'STUDENT_NOT_FOUND' || code === 'BARCODE_INVALID' ? 'Barcode tidak dikenali. Pastikan siswa menunjukkan barcode yang benar.' : code === 'ACCESS_SCOPE_INVALID' ? 'Siswa tidak termasuk dalam cakupan cabang atau kelas Anda.' : 'Presensi belum dapat diproses. Silakan coba lagi.';
+      return showScanResult(`⚠️ <b>${message}</b>`, 'warning');
+    }
+    const student = data.student; const label = data.action === 'CHECK_IN' ? 'Presensi Jam Datang berhasil dicatat.' : data.action === 'CHECK_OUT' ? 'Presensi Jam Pulang berhasil dicatat.' : 'Presensi siswa hari ini sudah lengkap.';
+    showScanResult(`✅ <b>${label}</b><br><strong>${esc(student.name)}</strong><br>🏫 ${esc(student.className || '—')} · ${esc(student.branch || '—')}<br>🕐 Jam Datang: ${esc(data.checkIn || '—')}${data.checkOut ? `<br>🕐 Jam Pulang: ${esc(data.checkOut)}` : ''}`, data.action === 'COMPLETE' ? 'warning' : 'success');
+    await loadAttendance(); renderAll();
+  } catch (error) { showScanResult(`⚠️ <b>${error?.name === 'AbortError' ? 'Presensi membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Presensi belum dapat diproses. Silakan coba lagi.'}</b>`, 'warning'); }
+  finally { clearTimeout(timeout); $('#barcode-input').value = ''; }
+}
+
 async function processScanUnlocked(rawBranchId) {
+  if (staffSession && !studentSession) return processStaffAttendanceScan(rawBranchId);
   if (!studentSession) return showScanResult('Silakan login sebagai siswa sebelum melakukan presensi.', 'warning');
   if (API_BASE && branchesLoadState === 'loading' && !branches.length) return showScanResult('⏳ <b>Data cabang sedang dimuat.</b><br>Silakan coba scan kembali sebentar lagi.', 'processing');
   if (API_BASE && branchesLoadState === 'error' && !branches.length) return showScanResult('⚠️ <b>Data cabang tidak tersedia.</b><br>Segarkan halaman lalu coba lagi.', 'warning');
@@ -793,11 +819,11 @@ function openClassSummaryStat(metric, breakdownStatus = '') {
 
 async function renderBranchBarcodes() {
   const grid = $('#branch-barcode-grid'); if (!grid) return;
-  if (!branches.length) { grid.innerHTML = '<div class="empty-state"><div>▤</div><b>Data cabang belum tersedia</b><span>Isi Database Cabang terlebih dahulu.</span></div>'; return; }
-  grid.innerHTML = branches.filter(branch => branch.status !== 'Nonaktif').map(branch => `<article class="branch-barcode-card" data-branch-code="${esc(branch.id)}"><div class="branch-barcode-heading"><div><span class="section-kicker">ID CABANG</span><h2>${esc(branch.name)}</h2><small>${esc(branch.id)}</small></div><span class="branch-status">${esc(branch.status || 'Aktif')}</span></div><div class="barcode-surface"><canvas class="branch-qr" role="img" aria-label="QR Code ${esc(branch.name)}"></canvas><p class="barcode-fallback">${esc(branch.id)}</p></div><button class="outline-button branch-print-button" type="button" data-print-branch="${esc(branch.id)}">▣ Cetak QR</button></article>`).join('');
+  if (!students.length) { grid.innerHTML = '<div class="empty-state"><div>▤</div><b>Data siswa belum tersedia</b><span>Segarkan data siswa lalu coba lagi.</span></div>'; return; }
+  grid.innerHTML = students.map(student => `<article class="branch-barcode-card" data-branch-code="${esc(student.id)}"><div class="branch-barcode-heading"><div><span class="section-kicker">ID SISWA</span><h2>${esc(student.name)}</h2><small>${esc(student.id)}</small></div><span class="branch-status">${esc(student.className || 'Siswa')}</span></div><div class="barcode-surface"><canvas class="branch-qr" role="img" aria-label="QR Siswa ${esc(student.name)}"></canvas><p class="barcode-fallback">${esc(student.id)}</p></div><button class="outline-button branch-print-button" type="button" data-print-branch="${esc(student.id)}">▣ Cetak QR</button></article>`).join('');
   try {
     await Promise.all($$('.branch-barcode-card').map(card => QRCode.toCanvas($('.branch-qr', card), card.dataset.branchCode, { width: 180, margin: 2, color: { dark: '#7a1f3d', light: '#ffffff' } })));
-  } catch (error) { console.warn('[QR] Generator failed', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('QR tidak dapat dibuat. ID cabang tetap dapat dicetak.', 'warn'); }
+  } catch (error) { console.warn('[QR] Generator failed', { message: error.message }); $$('.branch-barcode-card').forEach(card => card.classList.add('barcode-unavailable')); showToast('QR siswa tidak dapat dibuat. ID siswa tetap dapat dicetak.', 'warn'); }
 }
 function printBranchBarcode(branchId) {
   $$('.branch-barcode-card').forEach(card => { card.classList.toggle('print-target', card.dataset.branchCode === branchId); });
@@ -812,7 +838,32 @@ function setView(view) {
   if (view === 'branch-barcode' && !['teacher', 'admin'].includes(authRole)) { showToast('Pembuatan QR Cabang hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#class-summary-view').classList.toggle('active-view', view === 'class-summary'); $('#admin-view').classList.toggle('active-view', view === 'admin'); $('#branch-barcode-view').classList.toggle('active-view', view === 'branch-barcode');
-  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Siswa' : view === 'admin' ? 'Manajemen Device' : view === 'class-summary' ? 'Rekap Kelas' : view === 'branch-barcode' ? 'QR Cabang' : 'Dashboard Student Mentor';
+  $('#page-context').textContent = view === 'scan' ? 'Presensi / Scan' : view === 'login' ? 'Login Wali Kelas' : view === 'admin' ? 'Manajemen Device' : view === 'class-summary' ? 'Rekap Kelas' : view === 'branch-barcode' ? 'QR Siswa' : 'Dashboard Student Mentor';
+  if (view === 'scan') {
+    const staffMode = Boolean(staffSession && !studentSession);
+    const studentBarcodeCard = $('#student-barcode-card');
+    if (studentBarcodeCard) {
+      studentBarcodeCard.hidden = staffMode || !studentSession;
+      const student = currentStudent();
+      const studentId = String(student?.id || studentSession?.id || '').trim();
+      const fallback = $('#student-barcode-fallback'); if (fallback) fallback.textContent = studentId;
+      const canvas = $('#student-barcode');
+      if (!studentBarcodeCard.hidden && canvas && studentId) QRCode.toCanvas(canvas, studentId, { width: 180, margin: 2, color: { dark: '#7a1f3d', light: '#ffffff' } }).catch(() => {});
+    }
+    const scanView = $('#scan-view');
+    if (scanView) {
+      $('.subcopy', scanView).textContent = staffMode ? 'Scan barcode pribadi siswa untuk mencatat presensi.' : 'Scan QR cabang untuk mencatat kehadiran Anda.';
+      $('#session-role', scanView).textContent = staffMode ? 'WALI KELAS' : 'SISWA';
+      $('#session-student-name', scanView).textContent = staffMode ? 'Student Mentor' : 'Belum login';
+      $('#session-student-meta', scanView).textContent = staffMode ? `Role: ${staffSession?.role === 'admin' ? 'Admin Pusat' : 'Wali Kelas'}` : 'Login untuk melihat kelas dan cabang';
+      $('h2', scanView).textContent = staffMode ? 'Scan Barcode Siswa' : 'Scan QR Cabang';
+      $('h3', scanView).textContent = staffMode ? '📷 Arahkan kamera ke barcode pribadi siswa' : '📷 Arahkan kamera ke QR Cabang';
+      $('p', $('.scanner-stage', scanView))?.replaceChildren(document.createTextNode(staffMode ? 'Barcode hanya berisi identifier siswa' : 'QR hanya berisi ID lokasi, bukan data siswa'));
+      $('label', $('#scan-form'))?.replaceChildren(document.createTextNode(staffMode ? 'ID Siswa dari Barcode' : 'ID QR Cabang'));
+      $('#barcode-input').placeholder = staffMode ? 'Contoh: ID siswa' : 'Contoh: CABANG-001';
+      $('button[type="submit"]', $('#scan-form')).innerHTML = staffMode ? 'Catat Presensi <span>→</span>' : 'Validasi QR <span>→</span>';
+    }
+  }
   if (view === 'admin') { renderDeviceManagement(); loadDeviceBindings().then(renderDeviceManagement); }
   if (view === 'class-summary') {
     classSummaryLoadState = 'loading'; renderClassSummary();
@@ -824,6 +875,7 @@ function setView(view) {
 
 function populateStudentAccounts() {
   const select = $('#student-account');
+  if (!select) return;
   const search = normalizeSearch($('#student-search')?.value || '');
   const selected = select.value;
   const results = $('#student-results');
@@ -972,7 +1024,7 @@ async function activateCamera() {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } }); cameraStream = stream;
     const stage = $('#scanner-stage'); let video = $('#camera-preview');
     if (!video) { video = document.createElement('video'); video.id = 'camera-preview'; video.autoplay = true; video.muted = true; video.playsInline = true; video.style.cssText = 'position:absolute;inset:16px;width:calc(100% - 32px);height:150px;object-fit:cover;border-radius:8px;opacity:.8;z-index:3'; stage.prepend(video); }
-    video.srcObject = stream; $('#camera-button').innerHTML = '<span>■</span> Kamera aktif'; showToast('Kamera aktif. Arahkan QR cabang ke area pemindaian.');
+    video.srcObject = stream; $('#camera-button').innerHTML = '<span>■</span> Kamera aktif'; showToast(`Kamera aktif. Arahkan ${staffSession && !studentSession ? 'barcode siswa' : 'QR cabang'} ke area pemindaian.`);
     if ('BarcodeDetector' in window) barcodeDetector = new BarcodeDetector({ formats: ['qr_code', 'code_128', 'code_39', 'ean_13'] });
     else barcodeDetector = null;
     scanCanvas = scanCanvas || document.createElement('canvas'); scanVideo(video);
@@ -1012,8 +1064,8 @@ document.addEventListener('click', (event) => {
   const status = event.target.closest('[data-status-id]'); if (status && !status.disabled && waStatusFor(`${dateKey()}::${status.dataset.statusId}`, status.dataset.statusType).status === 'processed') openConfirm(status.dataset.statusId, status.dataset.statusType);
 });
 $('#scan-form').addEventListener('submit', (event) => { event.preventDefault(); processScan($('#barcode-input').value); });
-$('#student-login-submit').addEventListener('click', () => runWithProcessing($('#student-login-submit'), startStudentLogin, 'Memproses...'));
-$('#student-search').addEventListener('input', () => { $('#student-account').value = ''; $('#student-password').value = ''; $('#student-password').disabled = true; populateStudentAccounts(); });
+if ($('#student-login-submit')) $('#student-login-submit').addEventListener('click', () => runWithProcessing($('#student-login-submit'), startStudentLogin, 'Memproses...'));
+if ($('#student-search')) $('#student-search').addEventListener('input', () => { $('#student-account').value = ''; $('#student-password').value = ''; $('#student-password').disabled = true; populateStudentAccounts(); });
 $('#teacher-login-submit').addEventListener('click', () => runWithProcessing($('#teacher-login-submit'), () => loginStaff('teacher', $('#teacher-password').value), 'Sedang membuka dashboard...'));
 $('#profile-photo-input').addEventListener('change', (event) => { const file = event.target.files?.[0]; if (!file) return; if (!file.type.startsWith('image/')) return showToast('Pilih file foto yang valid.', 'warn'); if (file.size > 2 * 1024 * 1024) return showToast('Ukuran foto maksimal 2 MB.', 'warn'); const reader = new FileReader(); reader.onload = () => { localStorage.setItem(PROFILE_PHOTO_KEY, String(reader.result)); renderProfileIdentity(); closeProfileMenu(); showToast('Foto profil berhasil diperbarui.'); }; reader.readAsDataURL(file); event.target.value = ''; });
 $('#logout-button').addEventListener('click', logoutStudent);

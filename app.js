@@ -720,7 +720,6 @@ function renderClassSummaryStats(rows) {
   const aggregate = summaryAggregate(rows);
   const cards = [
     ['Total Siswa', aggregate.total, 'total', 'blue'],
-    ['Perangkat Terdaftar', aggregate.registered, 'registered', 'green'],
     ['Hadir', aggregate.present, 'present', 'green'],
     ['Pulang', aggregate.out, 'out', 'purple'],
     ['WA Kehadiran', `${aggregate.arrival.processed} / ${aggregate.arrival.delivered}`, 'waArrival', 'orange'],

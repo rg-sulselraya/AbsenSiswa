@@ -1030,8 +1030,9 @@ function sendWA(studentId, type = 'arrival') {
   const row = allRows().find(({ student }) => student.id === studentId); if (!row || (type !== 'absent' && (!row.record || (type === 'departure' && !row.record.checkOut)))) return;
   const { student, record } = row;
   if (type === 'absent' && row.record) return showToast('Pesan belum hadir dibatalkan karena siswa sudah hadir.', 'warn');
-  const branch = record.branch || student.branch || 'cabang';
-  const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${record.date || dateKey()}T00:00:00+08:00`));
+  const branch = record?.branch || student.branch || 'cabang';
+  const operationalDate = record?.date || dateKey();
+  const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${operationalDate}T00:00:00+08:00`));
   const message = type === 'absent'
     ? `Selamat pagi, Bapak/Ibu Orang Tua dari Ananda ${student.name}.\n\nKami ingin menginformasikan bahwa hingga saat ini Ananda belum tercatat hadir di Brain Academy ${branch} hari ini.\n\nMohon konfirmasi apakah Ananda akan hadir hari ini atau ada informasi lain yang perlu kami ketahui.\n\nTerima kasih atas perhatian dan kerja sama Bapak/Ibu.\n\nSalam,\nStudent Mentor Brain Academy ${branch}`
     : type === 'departure'

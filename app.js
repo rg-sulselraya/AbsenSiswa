@@ -222,6 +222,7 @@ async function syncWaStatus(payload) {
 function allRows() { return students.map((student) => { const key = `${dateKey()}::${student.id}`; return { student, record: todayRecord(student.id), wa: normalizeWaStatus(waStatuses[key]) }; }); }
 function branchById(id) { const wanted = String(id ?? '').trim().toUpperCase(); return branches.find((branch) => String(branch.id ?? '').trim().toUpperCase() === wanted && String(branch.status ?? '').trim().toLowerCase() !== 'nonaktif'); }
 function currentStudent() { return studentSession ? students.find((student) => student.id === studentSession.id) || studentSession : null; }
+function parentPhoneFor(student) { return String(student?.parentPhone || student?.parentWhatsapp || student?.whatsapp || student?.noOrtu || student?.nomorOrtu || student?.nomorWhatsApp || '').replace(/\D/g, ''); }
 
 async function loadStudents() {
   if (!API_BASE) return students;
@@ -552,7 +553,7 @@ function renderDashboard() {
   $('#attendance-body').innerHTML = filtered.map(({ student, record, wa }) => {
     const attendanceBadge = !record ? '<span class="attendance-badge absent">Belum Hadir</span>' : record.checkOut ? '<span class="attendance-badge present">Sudah Pulang</span>' : '<span class="attendance-badge not-out">Belum Pulang</span>';
     const waLabel = (type, label, available) => { const status = wa[type].status; const text = status === 'delivered' ? '✓ Sudah Terkirim' : status === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses'; const disabled = !available ? ' disabled' : ''; return `<button class="wa-badge ${status}${disabled}" data-status-id="${esc(student.id)}" data-status-type="${type}"${disabled}>${label}: ${text}</button>`; };
-    const absentStatus = wa.absent?.status || 'unprocessed'; const absentAvailable = !record && Boolean(String(student.parentPhone || '').replace(/\D/g, ''));
+    const absentStatus = wa.absent?.status || 'unprocessed'; const absentAvailable = !record && Boolean(parentPhoneFor(student));
     const absentLabel = absentStatus === 'delivered' ? '✓ Sudah Terkirim' : absentStatus === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses';
     const absentButton = `<button class="wa-action${absentAvailable ? '' : ' disabled'}" aria-label="Kirim WA belum hadir" title="Kirim WA belum hadir" data-wa="${esc(student.id)}" data-wa-type="absent"${absentAvailable ? '' : ' disabled'}>▣ Kirim WA</button>`;
     const waButton = `<div class="wa-actions"><button class="wa-action${record ? '' : ' disabled'}" aria-label="Kirim WA jam datang" title="Kirim WA jam datang" data-wa="${esc(student.id)}" data-wa-type="arrival"${record ? '' : ' disabled'}>▣ Kirim WA</button><button class="wa-action${record?.checkOut ? '' : ' disabled'}" aria-label="Kirim WA jam pulang" title="Kirim WA jam pulang" data-wa="${esc(student.id)}" data-wa-type="departure"${record?.checkOut ? '' : ' disabled'}>▣ Kirim WA</button></div>`;
@@ -1036,7 +1037,7 @@ function sendWA(studentId, type = 'arrival') {
     : type === 'departure'
     ? `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\n\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\n\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, dan menyelesaikan target harian Drill Soal. 📚✨\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`
     : `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* sudah hadir di *Brain Academy ${branch}*\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n\nSemoga ${student.name} dapat mengikuti pembelajaran dengan lancar dan mendapatkan pengalaman belajar yang baik hari ini.\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`;
-  const phone = String(student.parentPhone || '').replace(/\D/g, '');
+  const phone = parentPhoneFor(student);
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
   waInFlight.add(`${studentId}:${type}`); const processedAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'processed', processedAt, studentId: student.id }); persist();

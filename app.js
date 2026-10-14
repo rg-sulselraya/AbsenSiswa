@@ -202,10 +202,10 @@ function todayRecord(studentId) {
   if (!checkIn && !checkOut) return null;
   return { ...record, checkIn, checkOut };
 }
-function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank } }; if (value.arrival || value.departure) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank } }; }
+function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank }, absent: { ...blank } }; if (value.arrival || value.departure || value.absent) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) }, absent: { ...blank, ...(value.absent || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank }, absent: { ...blank } }; }
 function normalizeWaStatusValue(value) { const raw = String(value || '').trim().toLowerCase(); if (/delivered|terkirim|sudah terkirim|sent/.test(raw)) return 'delivered'; if (/processed|diproses|sudah diproses/.test(raw)) return 'processed'; return 'unprocessed'; }
-function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : 'arrival']; }
-function saveWaStatus(key, type, value) { const current = normalizeWaStatus(waStatuses[key]); current[type === 'departure' ? 'departure' : 'arrival'] = { ...current[type === 'departure' ? 'departure' : 'arrival'], ...value }; waStatuses[key] = current; return current[type === 'departure' ? 'departure' : 'arrival']; }
+function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : type === 'absent' ? 'absent' : 'arrival']; }
+function saveWaStatus(key, type, value) { const current = normalizeWaStatus(waStatuses[key]); const slot = type === 'departure' ? 'departure' : type === 'absent' ? 'absent' : 'arrival'; current[slot] = { ...current[slot], ...value }; waStatuses[key] = current; return current[slot]; }
 async function syncWaStatus(payload) {
   if (!API_BASE) return true;
   try {
@@ -297,7 +297,7 @@ async function loadWaStatuses() {
     const { data } = await fetchJsonWithRetry(apiUrl('wa-status', { date: dateKey(), _: Date.now() }));
     (data.entries || []).forEach((entry) => {
       const date = String(entry.Tanggal || entry.date || '').slice(0, 10); const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim(); if (!date || !studentId) return;
-      const type = String(entry['Jenis WA'] || entry.messageType || 'arrival').toLowerCase() === 'departure' ? 'departure' : 'arrival'; const status = normalizeWaStatusValue(entry['Status WA'] || entry.status || 'unprocessed');
+      const rawType = String(entry['Jenis WA'] || entry.messageType || 'arrival').toLowerCase(); const type = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : 'arrival'; const status = normalizeWaStatusValue(entry['Status WA'] || entry.status || 'unprocessed');
       saveWaStatus(`${date}::${studentId}`, type, { studentId, status, processedAt: entry['Waktu Diproses'] || entry.processedAt || '', deliveredAt: entry['Waktu Terkirim'] || entry.deliveredAt || '' });
     });
   } catch (error) { console.warn('[WA] Load failed', { message: error.message }); /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }

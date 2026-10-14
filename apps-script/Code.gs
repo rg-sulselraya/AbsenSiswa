@@ -374,17 +374,17 @@ function timeValue_(value, expectedDate) {
 function waStatusRows_(requestedDate) {
   const wanted = requestedDate ? normalizeDate_(requestedDate) : '';
   return rows_(sheet_(SHEETS.wa)).map(row => {
-    const type = String(row['Jenis WA'] || row.messageType || 'arrival').toLowerCase() === 'departure' ? 'departure' : 'arrival';
-    return { ...row, Tanggal: normalizeDate_(row['Tanggal']), 'Jenis WA': type, 'Status WA': String(row['Status WA'] || row.status || 'unprocessed').toLowerCase() || 'unprocessed' };
+    const rawType = String(row['Jenis WA'] || row.messageType || 'arrival').toLowerCase(); const normalizedType = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : 'arrival';
+    return { ...row, Tanggal: normalizeDate_(row['Tanggal']), 'Jenis WA': normalizedType, 'Status WA': String(row['Status WA'] || row.status || 'unprocessed').toLowerCase() || 'unprocessed' };
   }).filter(row => !wanted || row.Tanggal === wanted);
 }
 function waStatus_(payload) {
-  const sheet = sheet_(SHEETS.wa); const date = normalizeDate_(payload.date || dateKey_()); const type = String(payload.messageType || '').toLowerCase() === 'departure' ? 'departure' : 'arrival';
+  const sheet = sheet_(SHEETS.wa); const date = normalizeDate_(payload.date || dateKey_()); const rawType = String(payload.messageType || '').toLowerCase(); const normalizedType = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : 'arrival';
   const dateColumn = ensureColumn_(sheet, 'Tanggal'); const studentColumn = ensureColumn_(sheet, 'ID Siswa'); const statusColumn = ensureColumn_(sheet, 'Status WA'); const processedColumn = ensureColumn_(sheet, 'Waktu Diproses'); const deliveredColumn = ensureColumn_(sheet, 'Waktu Terkirim'); const typeColumn = ensureColumn_(sheet, 'Jenis WA');
-  const data = rows_(sheet); const index = data.findIndex(row => normalizeDate_(row['Tanggal']) === date && String(row['ID Siswa'] || '').trim() === String(payload.studentId || '').trim() && (String(row['Jenis WA'] || 'arrival').toLowerCase() === type));
-  const values = Array(Math.max(sheet.getLastColumn(), typeColumn)).fill(''); values[dateColumn - 1] = date; values[studentColumn - 1] = payload.studentId || ''; values[statusColumn - 1] = payload.status || 'processed'; values[processedColumn - 1] = payload.processedAt || ''; values[deliveredColumn - 1] = payload.deliveredAt || ''; values[typeColumn - 1] = type;
+  const data = rows_(sheet); const index = data.findIndex(row => normalizeDate_(row['Tanggal']) === date && String(row['ID Siswa'] || '').trim() === String(payload.studentId || '').trim() && (String(row['Jenis WA'] || 'arrival').toLowerCase() === normalizedType));
+  const values = Array(Math.max(sheet.getLastColumn(), typeColumn)).fill(''); values[dateColumn - 1] = date; values[studentColumn - 1] = payload.studentId || ''; values[statusColumn - 1] = payload.status || 'processed'; values[processedColumn - 1] = payload.processedAt || ''; values[deliveredColumn - 1] = payload.deliveredAt || ''; values[typeColumn - 1] = normalizedType;
   if (index >= 0) {
-    const rowNumber = index + 2; sheet.getRange(rowNumber, dateColumn).setValue(date); sheet.getRange(rowNumber, studentColumn).setValue(payload.studentId || ''); sheet.getRange(rowNumber, statusColumn).setValue(payload.status || 'processed'); if (payload.processedAt) sheet.getRange(rowNumber, processedColumn).setValue(payload.processedAt); if (payload.deliveredAt) sheet.getRange(rowNumber, deliveredColumn).setValue(payload.deliveredAt); sheet.getRange(rowNumber, typeColumn).setValue(type);
+    const rowNumber = index + 2; sheet.getRange(rowNumber, dateColumn).setValue(date); sheet.getRange(rowNumber, studentColumn).setValue(payload.studentId || ''); sheet.getRange(rowNumber, statusColumn).setValue(payload.status || 'processed'); if (payload.processedAt) sheet.getRange(rowNumber, processedColumn).setValue(payload.processedAt); if (payload.deliveredAt) sheet.getRange(rowNumber, deliveredColumn).setValue(payload.deliveredAt); sheet.getRange(rowNumber, typeColumn).setValue(normalizedType);
   } else sheet.appendRow(values);
-  return json_({ ok: true, date, studentId: payload.studentId || '', messageType: type, status: payload.status || 'processed' });
+  return json_({ ok: true, date, studentId: payload.studentId || '', messageType: normalizedType, status: payload.status || 'processed' });
 }

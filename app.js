@@ -532,6 +532,8 @@ function renderSummary() {
 
 function renderDashboard() {
   const rows = allRows();
+  const header = $('#attendance-body')?.closest('table')?.querySelector('thead tr');
+  if (header && ![...header.children].some(cell => cell.textContent.trim() === 'WA BELUM HADIR')) { const cell = document.createElement('th'); cell.textContent = 'WA BELUM HADIR'; header.appendChild(cell); }
   const present = rows.filter(({ record }) => record).length;
   const out = rows.filter(({ record }) => record?.checkOut).length;
   $('#stat-total').textContent = rows.length; $('#stat-present').textContent = present; $('#stat-absent').textContent = rows.length - present; $('#stat-out').textContent = out; $('#stat-not-out').textContent = present - out; $('#present-percent').textContent = `${rows.length ? Math.round((present / rows.length) * 100) : 0}%`;
@@ -550,8 +552,11 @@ function renderDashboard() {
   $('#attendance-body').innerHTML = filtered.map(({ student, record, wa }) => {
     const attendanceBadge = !record ? '<span class="attendance-badge absent">Belum Hadir</span>' : record.checkOut ? '<span class="attendance-badge present">Sudah Pulang</span>' : '<span class="attendance-badge not-out">Belum Pulang</span>';
     const waLabel = (type, label, available) => { const status = wa[type].status; const text = status === 'delivered' ? '✓ Sudah Terkirim' : status === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses'; const disabled = !available ? ' disabled' : ''; return `<button class="wa-badge ${status}${disabled}" data-status-id="${esc(student.id)}" data-status-type="${type}"${disabled}>${label}: ${text}</button>`; };
+    const absentStatus = wa.absent?.status || 'unprocessed'; const absentAvailable = !record && Boolean(String(student.parentPhone || '').replace(/\D/g, ''));
+    const absentLabel = absentStatus === 'delivered' ? '✓ Sudah Terkirim' : absentStatus === 'processed' ? '◷ Sudah Diproses' : 'Belum Diproses';
+    const absentButton = `<button class="wa-action${absentAvailable ? '' : ' disabled'}" aria-label="Kirim WA belum hadir" title="Kirim WA belum hadir" data-wa="${esc(student.id)}" data-wa-type="absent"${absentAvailable ? '' : ' disabled'}>▣ Kirim WA</button>`;
     const waButton = `<div class="wa-actions"><button class="wa-action${record ? '' : ' disabled'}" aria-label="Kirim WA jam datang" title="Kirim WA jam datang" data-wa="${esc(student.id)}" data-wa-type="arrival"${record ? '' : ' disabled'}>▣ Kirim WA</button><button class="wa-action${record?.checkOut ? '' : ' disabled'}" aria-label="Kirim WA jam pulang" title="Kirim WA jam pulang" data-wa="${esc(student.id)}" data-wa-type="departure"${record?.checkOut ? '' : ' disabled'}>▣ Kirim WA</button></div>`;
-    return `<tr><td><div class="student-cell"><span class="student-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${esc(student.id)}</small></div></div></td><td>${esc(student.className)}</td><td>${esc(record?.branch || student.branch || '—')}</td><td class="time-cell">${record?.checkIn || '<span class="dash">—</span>'}</td><td class="time-cell">${record?.checkOut || '<span class="dash">—</span>'}</td><td>${attendanceBadge}</td><td><div class="wa-status-group">${waLabel('arrival', 'Datang', Boolean(record))}${waLabel('departure', 'Pulang', Boolean(record?.checkOut))}</div></td><td>${waButton}</td></tr>`;
+    return `<tr><td><div class="student-cell"><span class="student-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${esc(student.id)}</small></div></div></td><td>${esc(student.className)}</td><td>${esc(record?.branch || student.branch || '—')}</td><td class="time-cell">${record?.checkIn || '<span class="dash">—</span>'}</td><td class="time-cell">${record?.checkOut || '<span class="dash">—</span>'}</td><td>${attendanceBadge}</td><td><div class="wa-status-group">${waLabel('arrival', 'Datang', Boolean(record))}${waLabel('departure', 'Pulang', Boolean(record?.checkOut))}</div></td><td>${waButton}</td><td><div class="wa-status-group"><span class="wa-badge ${absentStatus}">Belum Hadir: ${absentLabel}</span>${absentButton}</div></td></tr>`;
   }).join('');
   $('#empty-state').hidden = filtered.length !== 0;
 }
@@ -1018,21 +1023,26 @@ async function startStudentLogin() {
 
 function logoutStudent() { studentSession = null; authRole = null; persist(); stopCamera(); renderProfileIdentity(); $('#scan-result').className = 'scan-result'; setView('login'); showToast('Anda telah keluar dari akun siswa.'); }
 
+const waInFlight = new Set();
 function sendWA(studentId, type = 'arrival') {
-  const row = allRows().find(({ student }) => student.id === studentId); if (!row?.record || (type === 'departure' && !row.record.checkOut)) return;
+  if (waInFlight.has(`${studentId}:${type}`)) return;
+  const row = allRows().find(({ student }) => student.id === studentId); if (!row || (type !== 'absent' && (!row.record || (type === 'departure' && !row.record.checkOut)))) return;
   const { student, record } = row;
+  if (type === 'absent' && row.record) return showToast('Pesan belum hadir dibatalkan karena siswa sudah hadir.', 'warn');
   const branch = record.branch || student.branch || 'cabang';
   const date = new Intl.DateTimeFormat('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${record.date || dateKey()}T00:00:00+08:00`));
-  const message = type === 'departure'
+  const message = type === 'absent'
+    ? `Selamat pagi, Bapak/Ibu Orang Tua dari Ananda ${student.name}.\n\nKami ingin menginformasikan bahwa hingga saat ini Ananda belum tercatat hadir di Brain Academy ${branch} hari ini.\n\nMohon konfirmasi apakah Ananda akan hadir hari ini atau ada informasi lain yang perlu kami ketahui.\n\nTerima kasih atas perhatian dan kerja sama Bapak/Ibu.\n\nSalam,\nStudent Mentor Brain Academy ${branch}`
+    : type === 'departure'
     ? `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\n\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\n\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, dan menyelesaikan target harian Drill Soal. 📚✨\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`
     : `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* sudah hadir di *Brain Academy ${branch}*\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n\nSemoga ${student.name} dapat mengikuti pembelajaran dengan lancar dan mendapatkan pengalaman belajar yang baik hari ini.\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`;
   const phone = String(student.parentPhone || '').replace(/\D/g, '');
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;
-  const processedAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'processed', processedAt, studentId: student.id }); persist();
+  waInFlight.add(`${studentId}:${type}`); const processedAt = new Date().toISOString(); saveWaStatus(key, type, { status: 'processed', processedAt, studentId: student.id }); persist();
   syncWaStatus({ date: dateKey(), studentId: student.id, messageType: type, status: 'processed', processedAt });
   window.open(`https://wa.me/${phone}?text=${encodeURIComponent(message)}`, '_blank', 'noopener,noreferrer');
-  showToast(`WhatsApp ${type === 'departure' ? 'pulang' : 'datang'} untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard();
+  showToast(`WhatsApp ${type === 'absent' ? 'belum hadir' : type === 'departure' ? 'pulang' : 'datang'} untuk ${student.name} dibuka. Status: Sudah Diproses.`); renderDashboard(); setTimeout(() => waInFlight.delete(`${studentId}:${type}`), 1000);
 }
 
 function openConfirm(studentId, type = 'arrival') { pendingDeliveredId = studentId; pendingDeliveredType = type; $('#confirm-modal').querySelector('p').innerHTML = `Tandai pesan WhatsApp ${type === 'departure' ? 'jam pulang' : 'jam datang'} sebagai sudah terkirim setelah Anda memastikan pesan telah dikirim.`; $('#confirm-modal').hidden = false; }

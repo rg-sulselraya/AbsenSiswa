@@ -466,7 +466,7 @@ async function processStaffAttendanceScan(rawStudentId) {
     let data = null; try { data = await response.json(); } catch { data = null; }
     if (!response.ok || !data?.ok) {
       const code = data?.code || '';
-      const message = code === 'STUDENT_NOT_FOUND' || code === 'BARCODE_INVALID' ? 'Barcode tidak dikenali. Pastikan siswa menunjukkan barcode yang benar.' : code === 'ACCESS_SCOPE_INVALID' ? 'Siswa tidak termasuk dalam cakupan cabang atau kelas Anda.' : 'Presensi belum dapat diproses. Silakan coba lagi.';
+      const message = code === 'STUDENT_NOT_FOUND' || code === 'BARCODE_INVALID' ? 'Barcode tidak dikenali. Pastikan siswa menunjukkan barcode yang benar.' : code === 'STUDENT_BRANCH_NOT_MAPPED' ? 'Data cabang siswa belum terhubung. Hubungi Student Mentor.' : code === 'ACCESS_SCOPE_INVALID' ? 'Siswa tidak termasuk dalam cakupan cabang atau kelas Anda.' : 'Presensi belum dapat diproses. Silakan coba lagi.';
       return showScanResult(`⚠️ <b>${message}</b>`, 'warning');
     }
     const student = data.student; const label = data.action === 'CHECK_IN' ? 'Presensi Jam Datang berhasil dicatat.' : data.action === 'CHECK_OUT' ? 'Presensi Jam Pulang berhasil dicatat.' : 'Presensi siswa hari ini sudah lengkap.';

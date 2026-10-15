@@ -101,6 +101,7 @@ function rows_(sheet) {
   });
 }
 function normalizeHeader_(value) { return String(value == null ? '' : value).trim().toLowerCase().replace(/\s+/g, ' '); }
+function normalizeBranchId_(value) { return String(value == null ? '' : value).trim().toUpperCase(); }
 function headerMap_(sheet) {
   const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
   const headerMap = {}; headers.forEach((header, index) => headerMap[normalizeHeader_(header)] = index);
@@ -129,22 +130,24 @@ function normalizeDate_(value) {
 function students_() {
   const source = sheet_(SHEETS.students); const values = source.getDataRange().getValues();
   if (values.length < 2) return [];
-  const map = headerMap_(source); const branchMap = {}; const branchByName = {};
+  const map = headerMap_(source); const branchMap = {}; const branchByName = {}; const branchById = {};
   rows_(sheet_(SHEETS.branches)).forEach(row => {
     const id = String(row['ID Cabang'] || row['id cabang'] || row['id'] || '').trim();
     const name = String(row['Nama Cabang'] || row['nama cabang'] || row['name'] || '').trim();
-    if (id && name) branchByName[name.toLocaleLowerCase()] = { branchId: id, branch: name };
+    if (id && name) { const item = { branchId: id, branch: name }; branchByName[name.toLocaleLowerCase()] = item; branchById[normalizeBranchId_(id)] = item; }
   });
   rows_(sheet_(SHEETS.studentBranches)).forEach(row => {
     const id = String(row['ID Siswa'] || row['id siswa'] || row['User Serial'] || '').trim();
-    if (id) branchMap[id] = { branchId: String(row['ID Cabang'] || row['id cabang'] || '').trim(), branch: String(row['Nama Cabang'] || row['nama cabang'] || '').trim() };
+    if (id) branchMap[bindingId_(id)] = { branchId: String(row['ID Cabang'] || row['id cabang'] || '').trim(), branch: String(row['Nama Cabang'] || row['nama cabang'] || '').trim() };
   });
   return values.slice(1).filter(row => row.some(value => value !== '')).map(row => {
-    const id = String(value_(row, map, 'User Serial', 'ID Siswa', 'id') || '').trim(); const name = String(value_(row, map, 'Nama Siswa', 'name') || '').trim(); const branch = branchMap[id] || {};
+    const id = String(value_(row, map, 'User Serial', 'ID Siswa', 'id') || '').trim(); const name = String(value_(row, map, 'Nama Siswa', 'name') || '').trim(); const branch = branchMap[bindingId_(id)] || {};
     const directBranchId = String(value_(row, map, 'ID Cabang', 'branchId') || '').trim();
     const directBranchName = String(value_(row, map, 'Nama Cabang Siswa', 'Nama Cabang', 'Cabang', 'branchName', 'branch') || '').trim();
     const catalogBranch = branchByName[directBranchName.toLocaleLowerCase()] || {};
-    return { id, name, parentPhone: String(value_(row, map, 'No Ortu', 'No. Ortu', 'Nomor Ortu', 'Nomor WhatsApp', 'No WhatsApp', 'No. WhatsApp', 'WhatsApp Orang Tua', 'parentPhone') || '').trim(), grade: String(value_(row, map, 'Grade', 'grade') || '').trim(), className: String(value_(row, map, 'Kelas', 'className') || '').trim(), branchId: branch.branchId || directBranchId || catalogBranch.branchId || '', branch: branch.branch || directBranchName || catalogBranch.branch || '' };
+    const resolvedBranchId = branch.branchId || directBranchId || catalogBranch.branchId || '';
+    const canonicalBranch = branchById[normalizeBranchId_(resolvedBranchId)] || {};
+    return { id, name, parentPhone: String(value_(row, map, 'No Ortu', 'No. Ortu', 'Nomor Ortu', 'Nomor WhatsApp', 'No WhatsApp', 'No. WhatsApp', 'WhatsApp Orang Tua', 'parentPhone') || '').trim(), grade: String(value_(row, map, 'Grade', 'grade') || '').trim(), className: String(value_(row, map, 'Kelas', 'className') || '').trim(), branchId: canonicalBranch.branchId || resolvedBranchId, branch: canonicalBranch.branch || branch.branch || directBranchName || catalogBranch.branch || '' };
   }).filter(student => student.id && student.name);
 }
 
@@ -204,7 +207,7 @@ function number_(value) { const parsed = Number(String(value ?? '').replace(',',
 function distanceMeters_(lat1, lon1, lat2, lon2) {
   const radians = value => value * Math.PI / 180; const earthRadius = 6371000; const dLat = radians(lat2 - lat1); const dLon = radians(lon2 - lon1); const a = Math.sin(dLat / 2) ** 2 + Math.cos(radians(lat1)) * Math.cos(radians(lat2)) * Math.sin(dLon / 2) ** 2; return earthRadius * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
-function branchById_(branchId) { return branches_().find(branch => String(branch.id).toUpperCase() === String(branchId || '').trim().toUpperCase() && branch.status !== 'Nonaktif'); }
+function branchById_(branchId) { const wanted = normalizeBranchId_(branchId); return branches_().find(branch => normalizeBranchId_(branch.id) === wanted && String(branch.status || '').trim().toLowerCase() !== 'nonaktif'); }
 function studentBranchId_(studentId) { const student = students_().find(item => String(item.id) === String(studentId)); return student?.branchId || ''; }
 
 function setupSheets_() {
@@ -296,7 +299,10 @@ function staffAttendanceScan_(e, payload) {
   if (!studentId) return json_({ ok: false, code: 'BARCODE_INVALID', message: 'Barcode siswa tidak valid.' }, null, 400);
   const student = students_().find(item => bindingId_(item.id) === bindingId_(studentId));
   if (!student) return json_({ ok: false, code: 'STUDENT_NOT_FOUND', message: 'Barcode siswa tidak dikenali.' }, null, 404);
-  if (!student.branchId) return json_({ ok: false, code: 'ACCESS_SCOPE_INVALID', message: 'Siswa tidak memiliki pemetaan cabang.' }, null, 403);
+  if (!student.branchId) {
+    console.warn('[ATTENDANCE SCOPE] Student branch mapping missing: ' + student.id);
+    return json_({ ok: false, code: 'STUDENT_BRANCH_NOT_MAPPED', message: 'Data cabang siswa belum terhubung. Hubungi Student Mentor.' }, null, 422);
+  }
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(10000)) return json_({ ok: false, code: 'ATTENDANCE_BUSY', message: 'Presensi sedang diproses. Silakan coba lagi.' }, null, 409);
   try {

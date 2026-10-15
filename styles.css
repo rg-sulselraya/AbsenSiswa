@@ -26,6 +26,7 @@ html,body{max-width:100%;overflow-x:hidden}
 .confirm-modal{box-shadow:0 20px 60px rgba(70,21,37,.18)}
 .share-message-modal{max-width:520px;text-align:left}.share-message-modal h3,.share-message-modal .modal-icon{text-align:center}.share-message-modal p{max-width:none;margin-bottom:10px}.share-message-select{width:100%;height:36px;border:1px solid #eadbe0;border-radius:6px;padding:0 9px;color:#5c2437;background:#fff;margin-bottom:10px}.share-message-preview{white-space:pre-wrap;max-height:280px;overflow:auto;background:#fcf7f9;border:1px solid #eadde2;border-radius:7px;padding:12px;font:11px/1.55 'DM Sans',sans-serif;color:#5b3b48;margin:0 0 12px}.share-copy-button{width:100%}.share-channel-label{font-size:11px!important;font-weight:700;color:#72505e!important;text-align:left;margin:17px 0 8px!important}.share-channel-actions{display:grid;grid-template-columns:1fr 1fr}.share-message-fallback{background:#fff7e8;border:1px solid #f2dfb2;border-radius:7px;padding:9px;color:#8a641e;font-size:10px!important;line-height:1.5}.share-message-modal .modal-actions{margin-top:8px}
 @media(max-width:760px){
+.share-channel-actions{grid-template-columns:1fr}
   .app-shell{display:block;min-height:100vh}
   .sidebar{position:fixed;z-index:30;left:0;right:0;bottom:0;width:100%;height:68px;padding:7px 8px;background:#461525;border-top:1px solid #6b273d;display:block}
   .brand,.sidebar-label,.sidebar-bottom{display:none}
@@ -115,3 +116,4 @@ html,body{max-width:100%;overflow-x:hidden}
 .scan-result.success { font-size: 13px; line-height: 1.7; border-color: #9fdbc0; box-shadow: 0 5px 16px rgba(38,126,117,.12); }
 .scan-result.success b { font-size: 15px; }
 .scan-result.processing { display: block; background: #f2f7f6; border: 1px solid #cfe4df; color: #46736d; font-size: 13px; line-height: 1.7; }
+.share-channel-actions{display:flex;gap:8px;align-items:stretch}.share-channel-actions button{flex:1;min-width:0}.share-channel-actions .share-copy-button{width:auto}

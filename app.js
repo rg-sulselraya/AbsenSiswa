@@ -1159,6 +1159,6 @@ const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month:
 $('#display-date').textContent = formattedToday;
 if ($('#table-date')) $('#table-date').textContent = formattedToday;
 populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity();
-Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); return resumeStudentSession(); }).catch(() => {});
+Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); if (staffSession && !studentSession) { setView('dashboard'); return; } return resumeStudentSession(); }).catch(() => {});
 if (staffSession) loadDashboardData();
 renderProfileIdentity();

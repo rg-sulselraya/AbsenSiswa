@@ -102,6 +102,7 @@ function rows_(sheet) {
 }
 function normalizeHeader_(value) { return String(value == null ? '' : value).trim().toLowerCase().replace(/\s+/g, ' '); }
 function normalizeBranchId_(value) { return String(value == null ? '' : value).trim().toUpperCase(); }
+function normalizeBranchName_(value) { return String(value == null ? '' : value).trim().replace(/\s+/g, ' ').toLocaleLowerCase('id-ID'); }
 function headerMap_(sheet) {
   const headers = sheet.getRange(1, 1, 1, Math.max(sheet.getLastColumn(), 1)).getValues()[0];
   const headerMap = {}; headers.forEach((header, index) => headerMap[normalizeHeader_(header)] = index);
@@ -134,7 +135,7 @@ function students_() {
   rows_(sheet_(SHEETS.branches)).forEach(row => {
     const id = String(row['ID Cabang'] || row['id cabang'] || row['id'] || '').trim();
     const name = String(row['Nama Cabang'] || row['nama cabang'] || row['name'] || '').trim();
-    if (id && name) { const item = { branchId: id, branch: name }; branchByName[name.toLocaleLowerCase()] = item; branchById[normalizeBranchId_(id)] = item; }
+    if (id && name) { const item = { branchId: id, branch: name }; branchByName[normalizeBranchName_(name)] = item; branchById[normalizeBranchId_(id)] = item; }
   });
   rows_(sheet_(SHEETS.studentBranches)).forEach(row => {
     const id = String(row['ID Siswa'] || row['id siswa'] || row['User Serial'] || '').trim();
@@ -144,7 +145,7 @@ function students_() {
     const id = String(value_(row, map, 'User Serial', 'ID Siswa', 'id') || '').trim(); const name = String(value_(row, map, 'Nama Siswa', 'name') || '').trim(); const branch = branchMap[bindingId_(id)] || {};
     const directBranchId = String(value_(row, map, 'ID Cabang', 'branchId') || '').trim();
     const directBranchName = String(value_(row, map, 'Nama Cabang Siswa', 'Nama Cabang', 'Cabang', 'branchName', 'branch') || '').trim();
-    const catalogBranch = branchByName[directBranchName.toLocaleLowerCase()] || {};
+    const catalogBranch = branchByName[normalizeBranchName_(directBranchName)] || {};
     const resolvedBranchId = branch.branchId || directBranchId || catalogBranch.branchId || '';
     const canonicalBranch = branchById[normalizeBranchId_(resolvedBranchId)] || {};
     return { id, name, parentPhone: String(value_(row, map, 'No Ortu', 'No. Ortu', 'Nomor Ortu', 'Nomor WhatsApp', 'No WhatsApp', 'No. WhatsApp', 'WhatsApp Orang Tua', 'parentPhone') || '').trim(), grade: String(value_(row, map, 'Grade', 'grade') || '').trim(), className: String(value_(row, map, 'Kelas', 'className') || '').trim(), branchId: canonicalBranch.branchId || resolvedBranchId, branch: canonicalBranch.branch || branch.branch || directBranchName || catalogBranch.branch || '' };

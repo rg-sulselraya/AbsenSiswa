@@ -222,7 +222,18 @@ async function syncWaStatus(payload) {
 function allRows() { return students.map((student) => { const key = `${dateKey()}::${student.id}`; return { student, record: todayRecord(student.id), wa: normalizeWaStatus(waStatuses[key]) }; }); }
 function branchById(id) { const wanted = String(id ?? '').trim().toUpperCase(); return branches.find((branch) => String(branch.id ?? '').trim().toUpperCase() === wanted && String(branch.status ?? '').trim().toLowerCase() !== 'nonaktif'); }
 function currentStudent() { return studentSession ? students.find((student) => student.id === studentSession.id) || studentSession : null; }
-function parentPhoneFor(student) { return String(student?.parentPhone || student?.parentWhatsapp || student?.whatsapp || student?.noOrtu || student?.nomorOrtu || student?.nomorWhatsApp || '').replace(/\D/g, ''); }
+function normalizeWhatsAppPhone(value) {
+  const raw = String(value ?? '').trim(); if (!raw) return '';
+  const digits = raw.replace(/\D/g, ''); if (!digits) return '';
+  if (digits.startsWith('62')) return digits;
+  if (digits.startsWith('0')) return digits.startsWith('08') ? `62${digits.slice(1)}` : '';
+  // A bare Indonesian mobile number may arrive without its leading 0.
+  if (digits.startsWith('8') && digits.length >= 10 && digits.length <= 12) return `62${digits}`;
+  // Preserve other international country codes; do not guess a country prefix.
+  if (!digits.startsWith('8') && digits.length >= 8) return digits;
+  return '';
+}
+function parentPhoneFor(student) { return normalizeWhatsAppPhone(student?.parentPhone || student?.parentWhatsapp || student?.whatsapp || student?.noOrtu || student?.nomorOrtu || student?.nomorWhatsApp); }
 
 async function loadStudents() {
   if (!API_BASE) return students;
@@ -1036,8 +1047,8 @@ function sendWA(studentId, type = 'arrival') {
   const message = type === 'absent'
     ? `Halo Ayah/Bunda 😊\n\nIzin menginformasikan, Ananda *${student.name}* belum tercatat hadir di Brain Academy Makassar – Hertasning hari ini.\n\nMohon konfirmasinya, Ayah/Bunda, apakah Ananda akan hadir hari ini atau ada kendala sehingga belum bisa hadir?\n\nTerima kasih banyak atas informasinya 🙏😊\n\n*Student Mentor*\n*Brain Academy Makassar – Hertasning*`
     : type === 'departure'
-    ? `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\n\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\n\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, dan menyelesaikan target harian Drill Soal. 📚✨\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`
-    : `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* sudah hadir di *Brain Academy ${branch}*\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n\nSemoga ${student.name} dapat mengikuti pembelajaran dengan lancar dan mendapatkan pengalaman belajar yang baik hari ini.\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\nSalam hangat,\n*Student Mentor*`;
+    ? `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* telah selesai mengikuti pembelajaran di *Brain Academy ${branch}*.\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n🕐 *Jam Pulang:* ${record.checkOut} WITA\n\nSemoga ${student.name} mendapatkan pengalaman belajar yang baik hari ini dan terus semangat dalam proses belajarnya. 💪😊\n\nJangan lupa untuk mengingatkan ${student.name} *mereview kembali materi yang sudah diajarkan hari ini*, dan menyelesaikan target harian Drill Soal. 📚✨\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\n*Student Mentor*\n*Brain Academy Makassar – Hertasning*`
+    : `Halo Ayah/Bunda 😊\n\nKami ingin menginformasikan bahwa *${student.name}* sudah hadir di *Brain Academy ${branch}*\n\n📅 *Tanggal:* ${date}\n🕐 *Jam Datang:* ${record.checkIn} WITA\n\nSemoga ${student.name} dapat mengikuti pembelajaran dengan lancar dan mendapatkan pengalaman belajar yang baik hari ini.\n\nTerima kasih atas perhatian dan dukungan Ayah/Bunda dalam mendampingi proses belajar ${student.name}. 🙏\n\n*Student Mentor*\n*Brain Academy Makassar – Hertasning*`;
   const phone = parentPhoneFor(student);
   if (!phone) return showToast('Nomor WhatsApp orang tua belum tersedia.', 'warn');
   const key = `${dateKey()}::${student.id}`;

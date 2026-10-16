@@ -118,6 +118,13 @@ function sha256_(value) {
 }
 function iso_(value) { return value instanceof Date ? value.toISOString() : value ? String(value) : ''; }
 function dateKey_() { return Utilities.formatDate(new Date(), Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd'); }
+function timeText_(value) {
+  if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'HH:mm');
+  const text = String(value == null ? '' : value).trim();
+  if (!text) return '';
+  const match = text.match(/(?:^|\s)(\d{1,2}):(\d{2})(?::\d{2})?/);
+  return match ? `${String(match[1]).padStart(2, '0')}:${match[2]}` : text;
+}
 function normalizeDate_(value) {
   if (value instanceof Date) return Utilities.formatDate(value, Session.getScriptTimeZone() || 'Asia/Makassar', 'yyyy-MM-dd');
   const text = String(value || '').trim();
@@ -318,9 +325,9 @@ function staffAttendanceScan_(e, payload) {
     if (!String(current['Jam Pulang'] || '').trim()) {
       const values = [date, student.id, student.name, student.className, student.branchId, student.branch, current['Jam Datang'], serverTime, 'Hadir'];
       writeRow_(sheet, index + 2, values);
-      return json_({ ok: true, action: 'CHECK_OUT', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: String(current['Jam Datang']), checkOut: serverTime, date });
+      return json_({ ok: true, action: 'CHECK_OUT', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: timeText_(current['Jam Datang']), checkOut: serverTime, date });
     }
-    return json_({ ok: true, action: 'COMPLETE', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: String(current['Jam Datang']), checkOut: String(current['Jam Pulang']), date });
+    return json_({ ok: true, action: 'COMPLETE', student: { id: student.id, name: student.name, className: student.className, branch: student.branch }, checkIn: timeText_(current['Jam Datang']), checkOut: timeText_(current['Jam Pulang']), date });
   } finally { lock.releaseLock(); }
 }
 

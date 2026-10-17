@@ -303,7 +303,7 @@ async function loadDeviceBindings() {
 }
 
 async function loadWaStatuses() {
-  if (!API_BASE) return;
+  if (!API_BASE) return true;
   try {
     const { data } = await fetchJsonWithRetry(apiUrl('wa-status', { date: dateKey(), _: Date.now() }));
     (data.entries || []).forEach((entry) => {
@@ -311,7 +311,8 @@ async function loadWaStatuses() {
       const rawType = String(entry['Jenis WA'] || entry.messageType || 'arrival').toLowerCase(); const type = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : 'arrival'; const status = normalizeWaStatusValue(entry['Status WA'] || entry.status || 'unprocessed');
       saveWaStatus(`${date}::${studentId}`, type, { studentId, status, processedAt: entry['Waktu Diproses'] || entry.processedAt || '', deliveredAt: entry['Waktu Terkirim'] || entry.deliveredAt || '' });
     });
-  } catch (error) { console.warn('[WA] Load failed', { message: error.message }); /* status WA lokal tetap digunakan bila endpoint belum tersedia */ }
+    return true;
+  } catch (error) { console.warn('[WA] Load failed', { message: error.message }); return false; }
 }
 
 async function loadDashboardData() {
@@ -322,7 +323,7 @@ async function loadDashboardData() {
 }
 
 async function loadAttendance() {
-  if (!API_BASE) return;
+  if (!API_BASE) return true;
   try {
     const today = dateKey();
     const { data } = await fetchJsonWithRetry(apiUrl('attendance', { date: today }));
@@ -350,8 +351,10 @@ async function loadAttendance() {
       };
     });
     persist();
+    return true;
   } catch (error) {
     console.warn('[ATTENDANCE] Load failed', { message: error.message });
+    return false;
   }
 }
 
@@ -478,7 +481,8 @@ async function processStaffAttendanceScan(rawStudentId) {
 
 async function processScanUnlocked(rawBranchId) {
   if (staffSession && !studentSession) return processStaffAttendanceScan(rawBranchId);
-  if (!studentSession) return showScanResult('Silakan login sebagai siswa sebelum melakukan presensi.', 'warning');
+  if (!studentSession) return showScanResult('Login siswa dan presensi mandiri sudah dinonaktifkan. Login sebagai Wali Kelas/Student Mentor untuk scan barcode siswa.', 'warning');
+  return showScanResult('Presensi mandiri siswa sudah dinonaktifkan. Gunakan akun Wali Kelas/Student Mentor untuk scan barcode siswa.', 'warning');
   if (API_BASE && branchesLoadState === 'loading' && !branches.length) return showScanResult('⏳ <b>Data cabang sedang dimuat.</b><br>Silakan coba scan kembali sebentar lagi.', 'processing');
   if (API_BASE && branchesLoadState === 'error' && !branches.length) return showScanResult('⚠️ <b>Data cabang tidak tersedia.</b><br>Segarkan halaman lalu coba lagi.', 'warning');
   const branchId = String(rawBranchId || '').trim().toUpperCase();
@@ -765,7 +769,7 @@ function renderClassSummary() {
   renderClassSummaryFilters(classSummaryRowsState);
   const rows = classSummaryFilters();
   renderClassSummaryStats(rows);
-  body.innerHTML = rows.map((row) => `<tr><td><b>${esc(row.className)}</b><small class="summary-branch-label">${esc(row.branchName)}</small></td><td>${detailButton('total', row.total, row.key, 'Total siswa')}</td><td>${detailButton('registered', row.registered, row.key, 'Perangkat terdaftar')}</td><td>${detailButton('unregistered', row.unregistered, row.key, 'Belum terdaftar')}</td><td>${detailButton('present', row.present, row.key, 'Hadir')}</td><td>${detailButton('absent', row.absent, row.key, 'Belum hadir')}</td><td>${detailButton('out', row.out, row.key, 'Pulang')}</td><td>${detailButton('notOut', row.notOut, row.key, 'Belum pulang')}</td><td>${detailButton('waArrival', `${row.waArrival.processed} / ${row.waArrival.delivered}`, row.key, 'WA Kehadiran')}</td><td>${detailButton('waDeparture', `${row.waDeparture.processed} / ${row.waDeparture.delivered}`, row.key, 'WA Kepulangan')}</td></tr>`).join('');
+  body.innerHTML = rows.map((row) => `<tr><td><b>${esc(row.className)}</b><small class="summary-branch-label">${esc(row.branchName)}</small></td><td>${detailButton('total', row.total, row.key, 'Total siswa')}</td><td>${detailButton('present', row.present, row.key, 'Hadir')}</td><td>${detailButton('absent', row.absent, row.key, 'Belum hadir')}</td><td>${detailButton('out', row.out, row.key, 'Pulang')}</td><td>${detailButton('notOut', row.notOut, row.key, 'Belum pulang')}</td><td>${detailButton('waArrival', `${row.waArrival.processed} / ${row.waArrival.delivered}`, row.key, 'WA Kehadiran')}</td><td>${detailButton('waDeparture', `${row.waDeparture.processed} / ${row.waDeparture.delivered}`, row.key, 'WA Kepulangan')}</td></tr>`).join('');
   empty.hidden = rows.length !== 0;
 }
 
@@ -872,7 +876,7 @@ function printBranchBarcode(branchId) {
 function setView(view) {
   if (view === 'dashboard' && !['teacher', 'admin'].includes(authRole)) { showToast('Dashboard khusus Student Mentor. Silakan login sebagai Student Mentor.', 'warn'); return setView('login'); }
   if (view === 'class-summary' && !['teacher', 'admin'].includes(authRole)) { showToast('Rekap Kelas khusus Student Mentor. Silakan login sebagai Student Mentor.', 'warn'); return setView('login'); }
-  if (view === 'admin' && !['teacher', 'admin'].includes(authRole)) { showToast('Manajemen Device hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
+  if (view === 'admin') { showToast('Manajemen Device tidak tersedia dari aplikasi operasional.', 'warn'); return setView(['teacher', 'admin'].includes(authRole) ? 'dashboard' : 'login'); }
   if (view === 'branch-barcode' && !['teacher', 'admin'].includes(authRole)) { showToast('Pembuatan QR Cabang hanya dapat diakses Student Mentor.', 'warn'); return setView('login'); }
   $$('.nav-item').forEach((button) => button.classList.toggle('active', button.dataset.view === view));
   $('#login-view').classList.toggle('active-view', view === 'login'); $('#scan-view').classList.toggle('active-view', view === 'scan'); $('#dashboard-view').classList.toggle('active-view', view === 'dashboard'); $('#class-summary-view').classList.toggle('active-view', view === 'class-summary'); $('#admin-view').classList.toggle('active-view', view === 'admin'); $('#branch-barcode-view').classList.toggle('active-view', view === 'branch-barcode');
@@ -966,7 +970,9 @@ function renderSession() {
 }
 
 async function resumeStudentSessionImpl() {
-  if (!studentSession) return setView('login');
+  if (studentSession) { studentSession = null; authRole = staffSession?.role || null; persist(); showToast('Sesi siswa lama dihentikan. Login sebagai Wali Kelas/Student Mentor untuk melanjutkan.', 'warn'); }
+  if (staffSession && ['teacher', 'admin'].includes(staffSession.role)) return setView('dashboard');
+  return setView('login');
   if (!hasDeviceToken()) { studentSession = null; authRole = null; persist(); showToast('Perangkat tidak dikenali. Silakan hubungi Admin untuk reset perangkat.', 'warn'); return setView('login'); }
   if (API_BASE) { const student = currentStudent(); const result = await serverDeviceCheck(student, normalizeDeviceToken(localStorage.getItem(DEVICE_KEY))); if (result.status === 'DEVICE_CHECK_ERROR' || result.status === 'DEVICE_CHECK_TIMEOUT') { showToast(result.message || 'Server belum dapat dihubungi. Sesi Anda dipertahankan, silakan coba lagi.', 'warn'); return setView('login'); } if (result.status !== 'DEVICE_REGISTERED') { studentSession = null; authRole = null; persist(); return setView('login'); } }
   else if (!deviceSessionValid(studentSession.id)) { studentSession = null; authRole = null; persist(); return setView('login'); }
@@ -982,6 +988,7 @@ async function resumeStudentSession() {
 }
 
 async function loginStudent() {
+  return showToast('Login siswa sudah dinonaktifkan. Gunakan login Wali Kelas/Student Mentor.', 'warn');
   if (API_BASE && studentsLoadState === 'loading' && !students.length) return showToast('Data siswa sedang dimuat. Silakan tunggu sebentar.', 'warn');
   if (API_BASE && studentsLoadState === 'error' && !students.length) return showToast('Data siswa belum berhasil dimuat. Segarkan halaman lalu coba lagi.', 'warn');
   const student = students.find((item) => item.id === $('#student-account').value);
@@ -1152,7 +1159,7 @@ $('#refresh-class-summary').addEventListener('click', async (event) => { const b
 document.addEventListener('click', event => { const shareButton = event.target.closest('[data-share-message]'); if (shareButton) return openShareMessage(shareButton.dataset.shareMessage); const printButton = event.target.closest('[data-print-branch]'); if (printButton) return printBranchBarcode(printButton.dataset.printBranch); const downloadButton = event.target.closest('[data-download-qr]'); if (downloadButton) downloadStudentQrPng(downloadButton.dataset.downloadQr); });
 $('#share-message-whatsapp').addEventListener('click', event => { event.stopImmediatePropagation(); const type = $('#share-message-type').value; const studentId = shareMessageStudentId; $('#share-message-modal').hidden = true; openWhatsAppApp('regular'); if (studentId) openConfirm(studentId, type, true); }, true);
 $('#share-message-business')?.remove(); const shareWhatsAppButton = $('#share-message-whatsapp'); if (shareWhatsAppButton) shareWhatsAppButton.textContent = 'Pilih Grup 1O1'; const shareCloseButton = $('#share-message-close'); const shareCloseParent = shareCloseButton?.parentElement; const shareChannelActions = $('.share-channel-actions'); if (shareCloseButton && shareChannelActions) { shareChannelActions.append($('#share-message-copy'), shareWhatsAppButton, shareCloseButton); if (shareCloseParent && shareCloseParent !== shareChannelActions) shareCloseParent.remove(); } $('#share-message-type').addEventListener('change', updateShareMessagePreview); $('#share-message-whatsapp').addEventListener('click', () => { $('#share-message-modal').hidden = true; openWhatsAppApp('regular'); }); $('#share-message-copy').addEventListener('click', async () => { const row = allRows().find(({ student }) => student.id === shareMessageStudentId); if (!row) return; try { await navigator.clipboard.writeText(shareMessageFor(row.student, row.record, $('#share-message-type').value)); showToast('Pesan berhasil disalin.'); } catch { showToast('Pesan tidak dapat disalin di browser ini.', 'warn'); } }); $('#share-message-close').addEventListener('click', () => { $('#share-message-modal').hidden = true; shareMessageStudentId = null; });
-$('#refresh-button').addEventListener('click', async () => { await Promise.all([loadAttendance(), loadWaStatuses()]); renderAll(); showToast('Rekap berhasil disegarkan.'); });
+$('#refresh-button').addEventListener('click', async (event) => { const button = event.currentTarget; if (button.disabled) return; const original = button.innerHTML; button.disabled = true; button.setAttribute('aria-busy', 'true'); button.innerHTML = '↻ Memuat...'; try { const results = await Promise.all([loadAttendance(), loadWaStatuses()]); renderAll(); if (results.every(Boolean)) showToast('Dashboard berhasil disegarkan.'); else showToast('Sebagian data belum dapat diperbarui. Data terakhir tetap ditampilkan.', 'warn'); } catch (error) { console.warn('[DASHBOARD] Refresh failed', { message: error?.message || String(error) }); renderAll(); showToast('Dashboard belum dapat disegarkan. Data terakhir tetap ditampilkan.', 'warn'); } finally { button.disabled = false; button.removeAttribute('aria-busy'); button.innerHTML = original; } });
 $('#export-button').addEventListener('click', () => { const rows = allRows(); const csv = [['Siswa', 'ID', 'Kelas', 'ID Cabang', 'Cabang', 'Jam Datang', 'Jam Pulang', 'Status', 'Status WA Datang', 'Status WA Pulang'], ...rows.map(({ student, record, wa }) => [student.name, student.id, student.className, record?.branchId || student.branchId || '', record?.branch || student.branch || '', record?.checkIn || '', record?.checkOut || '', record ? (record.checkOut ? 'Hadir' : 'Belum Pulang') : 'Belum Hadir', wa.arrival.status, wa.departure.status])].map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(',')).join('\n'); const link = document.createElement('a'); link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' })); link.download = `rekap-presensi-${dateKey()}.csv`; link.click(); URL.revokeObjectURL(link.href); showToast('Rekap CSV berhasil diunduh.'); });
 $('#modal-cancel').addEventListener('click', () => { $('#confirm-modal').hidden = true; pendingDeliveredId = null; pendingDeliveredType = null; }); $('#modal-confirm').addEventListener('click', confirmDelivered);
 window.addEventListener('beforeunload', stopCamera);

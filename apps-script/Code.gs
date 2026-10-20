@@ -388,12 +388,12 @@ function timeValue_(value, expectedDate) {
 function waStatusRows_(requestedDate) {
   const wanted = requestedDate ? normalizeDate_(requestedDate) : '';
   return rows_(sheet_(SHEETS.wa)).map(row => {
-    const rawType = String(row['Jenis WA'] || row.messageType || 'arrival').toLowerCase(); const normalizedType = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : 'arrival';
+    const rawType = String(row['Jenis WA'] || row.messageType || 'arrival').toLowerCase(); const normalizedType = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : rawType === 'not-present' ? 'not-present' : 'arrival';
     return { ...row, Tanggal: normalizeDate_(row['Tanggal']), 'Jenis WA': normalizedType, 'Status WA': String(row['Status WA'] || row.status || 'unprocessed').toLowerCase() || 'unprocessed' };
   }).filter(row => !wanted || row.Tanggal === wanted);
 }
 function waStatus_(payload) {
-  const sheet = sheet_(SHEETS.wa); const date = normalizeDate_(payload.date || dateKey_()); const rawType = String(payload.messageType || '').toLowerCase(); const normalizedType = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : 'arrival';
+  const sheet = sheet_(SHEETS.wa); const date = normalizeDate_(payload.date || dateKey_()); const rawType = String(payload.messageType || '').toLowerCase(); const normalizedType = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : rawType === 'not-present' ? 'not-present' : 'arrival';
   const dateColumn = ensureColumn_(sheet, 'Tanggal'); const studentColumn = ensureColumn_(sheet, 'ID Siswa'); const statusColumn = ensureColumn_(sheet, 'Status WA'); const processedColumn = ensureColumn_(sheet, 'Waktu Diproses'); const deliveredColumn = ensureColumn_(sheet, 'Waktu Terkirim'); const typeColumn = ensureColumn_(sheet, 'Jenis WA');
   const data = rows_(sheet); const index = data.findIndex(row => normalizeDate_(row['Tanggal']) === date && String(row['ID Siswa'] || '').trim() === String(payload.studentId || '').trim() && (String(row['Jenis WA'] || 'arrival').toLowerCase() === normalizedType));
   const values = Array(Math.max(sheet.getLastColumn(), typeColumn)).fill(''); values[dateColumn - 1] = date; values[studentColumn - 1] = payload.studentId || ''; values[statusColumn - 1] = payload.status || 'processed'; values[processedColumn - 1] = payload.processedAt || ''; values[deliveredColumn - 1] = payload.deliveredAt || ''; values[typeColumn - 1] = normalizedType;

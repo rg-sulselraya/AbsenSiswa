@@ -579,14 +579,16 @@ function showScanResult(html, kind) { const box = $('#scan-result'); box.innerHT
 function showToast(message, kind = 'success') { const toast = document.createElement('div'); toast.className = `toast ${kind}`; toast.textContent = message; $('#toast-region').append(toast); setTimeout(() => toast.remove(), 3900); }
 
 function renderSummary() {
-  const student = currentStudent();
-  const record = student ? todayRecord(student.id) : null;
-  $('#today-present').textContent = record ? (record.checkOut ? '✓' : '1') : '—';
-  $('#today-summary-label').textContent = record?.checkOut ? 'Presensi lengkap hari ini' : record ? 'Menunggu Jam Pulang' : 'Belum presensi hari ini';
-  $('#today-in').textContent = record?.checkIn || '—'; $('#today-out').textContent = record?.checkOut || '—'; $('#today-absent').textContent = record?.branch || student?.branch || '—';
-  $('#today-progress').style.width = record?.checkOut ? '100%' : record ? '50%' : '0%';
-  $('#recent-count').textContent = record ? (record.checkOut ? 'Lengkap' : 'Sudah datang') : 'Belum mulai';
-  $('#recent-list').innerHTML = student ? `<div class="recent-item"><span class="recent-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${record ? (record.checkOut ? 'Jam Datang & Pulang' : 'Jam Datang tercatat') : `Terdaftar di ${esc(student.branch || 'cabang')}`}</small></div><span class="recent-time">${record?.checkOut || record?.checkIn || '—'}</span></div>` : '<div class="empty-state" style="padding:16px 0"><span>Login untuk melihat status presensi.</span></div>';
+  const rows = allRows();
+  const arrived = rows.filter(({ record }) => Boolean(record)).length;
+  const departed = rows.filter(({ record }) => Boolean(record?.checkOut)).length;
+  $('#today-present').textContent = arrived;
+  $('#today-summary-label').textContent = 'Siswa datang';
+  $('#today-in').textContent = arrived;
+  $('#today-out').textContent = departed;
+  $('#today-progress').style.width = `${arrived ? Math.round((departed / arrived) * 100) : 0}%`;
+  $('#recent-count').textContent = `${departed} pulang`;
+  $('#recent-list').innerHTML = '<div class="empty-state" style="padding:16px 0"><span>Jumlah diperbarui dari presensi hari ini.</span></div>';
 }
 
 function renderDashboard() {
@@ -938,6 +940,7 @@ function setView(view) {
     }
     const scanView = $('#scan-view');
     if (scanView) {
+      $('#greeting-name', scanView).innerHTML = 'Halo, Student Mentor <span class="wave">✦</span>';
       $('.subcopy', scanView).textContent = staffMode ? 'Scan barcode pribadi siswa untuk mencatat presensi.' : 'Scan QR cabang untuk mencatat kehadiran Anda.';
       $('#session-role', scanView).textContent = staffMode ? 'WALI KELAS' : 'SISWA';
       $('#session-student-name', scanView).textContent = staffMode ? 'Student Mentor' : 'Belum login';

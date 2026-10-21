@@ -398,6 +398,27 @@ async function loginStaff(role, password) {
   } finally { clearTimeout(timeout); }
 }
 
+async function validateStaffSession() {
+  if (!staffSession || !API_BASE) return Boolean(staffSession);
+  try {
+    const { response, data } = await fetchJsonWithTimeout(staffUrl('staff/validate'), { headers: requestHeaders(staffHeaders()) }, 10000);
+    if (response.ok && data?.authenticated && data.role) {
+      authRole = data.role;
+      staffSession.role = data.role;
+      persistStaffSession();
+      return true;
+    }
+    if (response.status === 401 || data?.code === 'AUTH_SESSION_INVALID') {
+      staffSession = null; authRole = null; persistStaffSession(); renderProfileIdentity(); setView('login');
+      showToast('Sesi Student Mentor telah berakhir. Silakan login kembali.', 'warn');
+      return false;
+    }
+  } catch (error) {
+    console.warn('[AUTH] Session validation failed', { type: error?.name === 'AbortError' ? 'timeout' : 'network' });
+  }
+  return Boolean(staffSession);
+}
+
 async function bindDevice(student) {
   if (bindInProgress) return;
   bindInProgress = true;
@@ -475,8 +496,30 @@ async function processStaffAttendanceScan(rawStudentId) {
     const student = data.student; const label = data.action === 'CHECK_IN' ? 'Presensi Jam Datang berhasil dicatat.' : data.action === 'CHECK_OUT' ? 'Presensi Jam Pulang berhasil dicatat.' : 'Presensi siswa hari ini sudah lengkap.';
     showScanResult(`✅ <b>${label}</b><br><strong>${esc(student.name)}</strong><br>🏫 ${esc(student.className || '—')} · ${esc(student.branch || '—')}<br>🕐 Jam Datang: ${esc(data.checkIn || '—')}${data.checkOut ? `<br>🕐 Jam Pulang: ${esc(data.checkOut)}` : ''}`, data.action === 'COMPLETE' ? 'warning' : 'success');
     await loadAttendance(); renderAll();
-  } catch (error) { showScanResult(`⚠️ <b>${error?.name === 'AbortError' ? 'Presensi membutuhkan waktu lebih lama dari biasanya. Silakan coba lagi.' : 'Presensi belum dapat diproses. Silakan coba lagi.'}</b>`, 'warning'); }
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      showScanResult(`⚠️ <b>Hasil presensi belum dapat dipastikan.</b><br>Periksa status siswa sebelum memindai ulang.<br><button type="button" class="outline-button scan-followup-button" data-check-attendance="${esc(studentId)}">Cek Status</button>`, 'warning');
+    } else showScanResult('⚠️ <b>Presensi belum dapat diproses. Silakan coba lagi.</b>', 'warning');
+  }
   finally { clearTimeout(timeout); $('#barcode-input').value = ''; }
+}
+
+async function verifyAttendanceStatus(studentId) {
+  const button = $$('[data-check-attendance]').find(item => item.dataset.checkAttendance === String(studentId));
+  if (button) { button.disabled = true; button.textContent = 'Memeriksa...'; }
+  try {
+    const { response, data } = await fetchJsonWithTimeout(apiUrl('attendance', { date: dateKey(), _: Date.now() }), { headers: requestHeaders(staffHeaders()) }, 10000);
+    if (!response.ok || !data) throw new Error('ATTENDANCE_STATUS_FAILED');
+    const entry = (data.entries || []).find(item => normalizeStudentId(item['ID Siswa'] || item.studentId) === normalizeStudentId(studentId));
+    if (entry) {
+      await loadAttendance(); renderAll();
+      showScanResult(`✅ <b>Presensi siswa sudah tercatat.</b><br>Jam Datang: ${esc(formatAttendanceTime(entry['Jam Datang'] || entry.checkIn || '', dateKey()) || '—')}<br>Jam Pulang: ${esc(formatAttendanceTime(entry['Jam Pulang'] || entry.checkOut || '', dateKey()) || '—')}`, 'success');
+    } else {
+      showScanResult(`ℹ️ <b>Presensi belum tercatat.</b><br>Silakan scan ulang barcode siswa.<br><button type="button" class="primary-button scan-followup-button" data-retry-attendance="${esc(studentId)}">Scan Ulang</button>`, 'warning');
+    }
+  } catch {
+    showScanResult('⚠️ <b>Status presensi belum dapat diperiksa.</b><br>Silakan coba cek status lagi.', 'warning');
+  }
 }
 
 async function processScanUnlocked(rawBranchId) {
@@ -1128,6 +1171,8 @@ document.addEventListener('click', (event) => {
   const summaryBreakdown = event.target.closest('[data-class-summary-breakdown]'); if (summaryBreakdown) return openClassSummaryStat(classDetailState.metric, summaryBreakdown.dataset.classSummaryBreakdown);
   const role = event.target.closest('[data-role]'); if (role) { $$('.role-tab').forEach((tab) => tab.classList.toggle('active', tab === role)); const studentRole = role.dataset.role === 'student'; const teacherRole = role.dataset.role === 'teacher'; $('#student-login-panel').hidden = !studentRole; $('#teacher-login-panel').hidden = !teacherRole; }
   const resetDevice = event.target.closest('[data-reset-device]'); if (resetDevice) openResetDevice(resetDevice.dataset.resetDevice);
+  const checkAttendance = event.target.closest('[data-check-attendance]'); if (checkAttendance) return verifyAttendanceStatus(checkAttendance.dataset.checkAttendance);
+  const retryAttendance = event.target.closest('[data-retry-attendance]'); if (retryAttendance) return processStaffAttendanceScan(retryAttendance.dataset.retryAttendance);
   const wa = event.target.closest('[data-wa]'); if (wa && !wa.disabled) sendWA(wa.dataset.wa, wa.dataset.waType);
   const status = event.target.closest('[data-status-id]'); if (status && !status.disabled) openConfirm(status.dataset.statusId, status.dataset.statusType);
 });
@@ -1172,6 +1217,5 @@ const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month:
 $('#display-date').textContent = formattedToday;
 if ($('#table-date')) $('#table-date').textContent = formattedToday;
 populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity();
-Promise.all([loadStudents(), loadBranches()]).then(() => { populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); if (staffSession && !studentSession) { setView('dashboard'); return; } return resumeStudentSession(); }).catch(() => {});
-if (staffSession) loadDashboardData();
+Promise.all([loadStudents(), loadBranches()]).then(async () => { populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); const staffValid = await validateStaffSession(); if (staffValid && staffSession && !studentSession) { setView('dashboard'); loadDashboardData(); return; } if (!staffValid) setView('login'); return resumeStudentSession(); }).catch(() => {});
 renderProfileIdentity();

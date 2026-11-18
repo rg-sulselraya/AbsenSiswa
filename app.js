@@ -607,6 +607,14 @@ function renderDashboard() {
     const matchAttendance = attendance === 'all' || (attendance === 'present' && record) || (attendance === 'absent' && !record) || (attendance === 'out' && record?.checkOut) || (attendance === 'not-out' && record && !record.checkOut);
     const matchWa = waFilter === 'all' || wa.arrival.status === waFilter || wa.departure.status === waFilter;
     return matchQuery && matchBranch && matchClass && matchAttendance && matchWa;
+  }).sort((left, right) => {
+    if (Boolean(left.record) !== Boolean(right.record)) return left.record ? -1 : 1;
+    if (!left.record) return 0;
+    const timeValue = (record) => {
+      const match = String(record?.checkOut || record?.checkIn || '').match(/(\d{1,2})\D(\d{2})/);
+      return match ? (Number(match[1]) * 60) + Number(match[2]) : 0;
+    };
+    return timeValue(right.record) - timeValue(left.record);
   });
   $('#table-total').textContent = rows.length; $('#table-showing').textContent = filtered.length;
   const activeFilters = [branchValue !== 'all', classValue !== 'all', attendance !== 'all', waFilter !== 'all'].filter(Boolean).length; $('#filter-count').textContent = activeFilters; $('#filter-count').classList.toggle('show', activeFilters > 0);

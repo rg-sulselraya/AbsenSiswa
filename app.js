@@ -69,6 +69,7 @@ let resumeInProgress = false;
 let scanInProgress = false;
 let scannerLocked = false;
 let classSummaryRowsState = [];
+let classSummarySelectedClasses = new Set();
 let classDetailState = { title: '', items: [], metric: '' };
 let classSummaryLoadState = API_BASE ? 'loading' : 'ready';
 let cameraStream = null;
@@ -194,14 +195,15 @@ function deviceErrorMessage(status, fallback = '') {
 function deviceSessionValid(studentId) { const binding = bindingFor(studentId); const token = normalizeDeviceToken(localStorage.getItem(DEVICE_KEY)); return Boolean(binding?.status === 'TERDAFTAR' && token && normalizeDeviceToken(binding.deviceToken) === token); }
 function tokenBelongsToAnotherStudent(studentId, token) { const wanted = normalizeStudentId(studentId); const currentToken = normalizeDeviceToken(token); return Boolean(currentToken && Object.entries(deviceBindings).some(([id, binding]) => normalizeStudentId(id || binding?.studentId) !== wanted && binding.status === 'TERDAFTAR' && normalizeDeviceToken(binding.deviceToken) === currentToken)); }
 function tokenWasReset(token) { return Boolean(token && deviceResetLog.some((entry) => entry.deviceToken === token && entry.status === 'DI-RESET')); }
-function todayRecord(studentId) {
-  const record = records[`${dateKey()}::${studentId}`];
+function recordForDate(studentId, date = dateKey()) {
+  const record = records[`${date}::${studentId}`];
   if (!record) return null;
-  const checkIn = formatAttendanceTime(record.checkIn || '', record.date || dateKey());
-  const checkOut = formatAttendanceTime(record.checkOut || '', record.date || dateKey());
+  const checkIn = formatAttendanceTime(record.checkIn || '', record.date || date);
+  const checkOut = formatAttendanceTime(record.checkOut || '', record.date || date);
   if (!checkIn && !checkOut) return null;
   return { ...record, checkIn, checkOut };
 }
+function todayRecord(studentId) { return recordForDate(studentId, dateKey()); }
 function normalizeWaStatus(value) { const blank = { status: 'unprocessed' }; if (!value) return { arrival: { ...blank }, departure: { ...blank }, absent: { ...blank }, notPresent: { ...blank } }; if (value.arrival || value.departure || value.absent || value.notPresent) return { arrival: { ...blank, ...(value.arrival || {}) }, departure: { ...blank, ...(value.departure || {}) }, absent: { ...blank, ...(value.absent || {}) }, notPresent: { ...blank, ...(value.notPresent || {}) } }; return { arrival: { ...blank, ...value }, departure: { ...blank }, absent: { ...blank }, notPresent: { ...blank } }; }
 function normalizeWaStatusValue(value) { const raw = String(value || '').trim().toLowerCase(); if (/delivered|terkirim|sudah terkirim|sent/.test(raw)) return 'delivered'; if (/processed|diproses|sudah diproses/.test(raw)) return 'processed'; return 'unprocessed'; }
 function waStatusFor(key, type) { return normalizeWaStatus(waStatuses[key])[type === 'departure' ? 'departure' : type === 'absent' ? 'absent' : type === 'not-present' ? 'notPresent' : 'arrival']; }
@@ -302,10 +304,10 @@ async function loadDeviceBindings() {
   }
 }
 
-async function loadWaStatuses() {
+async function loadWaStatuses(targetDate = dateKey()) {
   if (!API_BASE) return true;
   try {
-    const { data } = await fetchJsonWithRetry(apiUrl('wa-status', { date: dateKey(), _: Date.now() }));
+    const { data } = await fetchJsonWithRetry(apiUrl('wa-status', { date: targetDate, _: Date.now() }));
     (data.entries || []).forEach((entry) => {
       const date = String(entry.Tanggal || entry.date || '').slice(0, 10); const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim(); if (!date || !studentId) return;
       const rawType = String(entry['Jenis WA'] || entry.messageType || 'arrival').toLowerCase(); const type = rawType === 'departure' ? 'departure' : rawType === 'absent' ? 'absent' : rawType === 'not-present' ? 'not-present' : 'arrival'; const status = normalizeWaStatusValue(entry['Status WA'] || entry.status || 'unprocessed');
@@ -322,16 +324,15 @@ async function loadDashboardData() {
   if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement();
 }
 
-async function loadAttendance() {
+async function loadAttendance(targetDate = dateKey()) {
   if (!API_BASE) return true;
   try {
-    const today = dateKey();
-    const { data } = await fetchJsonWithRetry(apiUrl('attendance', { date: today }));
+    const { data } = await fetchJsonWithRetry(apiUrl('attendance', { date: targetDate }));
     const entries = Array.isArray(data.entries) ? data.entries : [];
     entries.forEach((entry) => {
       const date = String(entry.Tanggal || entry.date || '').slice(0, 10);
       const studentId = String(entry['ID Siswa'] || entry.studentId || '').trim();
-      if (!studentId || date !== today) return;
+      if (!studentId || date !== targetDate) return;
       const key = `${date}::${studentId}`;
       const previous = records[key] || {};
       const normalizedCheckIn = formatAttendanceTime(entry['Jam Datang'] || entry.checkIn || previous.checkIn || '', date);
@@ -693,21 +694,36 @@ async function confirmResetDevice() {
 
 function renderAll() { renderSummary(); renderDashboard(); renderClassSummary(); }
 
+function classSummaryDateKey() {
+  const selected = $('#class-summary-date-filter')?.value || dateKey();
+  return /^\d{4}-\d{2}-\d{2}$/.test(selected) ? selected : dateKey();
+}
+
 function classSummaryRecordFor(student) {
-  const record = todayRecord(student.id);
-  const wa = normalizeWaStatus(waStatuses[`${dateKey()}::${student.id}`]);
+  const selectedDate = classSummaryDateKey();
+  const record = recordForDate(student.id, selectedDate);
+  const wa = normalizeWaStatus(waStatuses[`${selectedDate}::${student.id}`]);
   const binding = bindingFor(student.id);
   const registered = bindingStatus(binding) === 'TERDAFTAR';
   const present = Boolean(record?.checkIn);
   const out = Boolean(record?.checkOut);
   const waArrival = present ? wa.arrival : { status: 'unprocessed' };
   const waDeparture = out ? wa.departure : { status: 'unprocessed' };
-  return { student, record, binding, registered, present, out, waArrival, waDeparture };
+  const waAbsent = !present ? wa.absent : { status: 'unprocessed' };
+  const waNotPresent = !present ? wa.notPresent : { status: 'unprocessed' };
+  return { student, record, binding, registered, present, out, waArrival, waDeparture, waAbsent, waNotPresent };
 }
 
+const WA_SUMMARY_CONFIG = {
+  waArrival: { type: 'arrival', title: 'WA Kehadiran' },
+  waDeparture: { type: 'departure', title: 'WA Kepulangan' },
+  waAbsent: { type: 'absent', title: 'WA Belum Hadir' },
+  waNotPresent: { type: 'not-present', title: 'WA Tidak Hadir' },
+};
+
 function waCounts(items, type) {
-  const field = type === 'departure' ? 'waDeparture' : 'waArrival';
-  const eligible = items.filter((item) => type === 'departure' ? item.out : item.present);
+  const field = type === 'departure' ? 'waDeparture' : type === 'absent' ? 'waAbsent' : type === 'not-present' ? 'waNotPresent' : 'waArrival';
+  const eligible = items.filter((item) => type === 'departure' ? item.out : type === 'arrival' ? item.present : !item.present);
   const statuses = eligible.map((item) => normalizeWaStatusValue(item[field]?.status));
   return {
     eligible,
@@ -737,6 +753,8 @@ function buildClassSummaryRows() {
     const { items } = group;
     const arrival = waCounts(items, 'arrival');
     const departure = waCounts(items, 'departure');
+    const absentWa = waCounts(items, 'absent');
+    const notPresentWa = waCounts(items, 'not-present');
     return {
       ...group,
       total: items.length,
@@ -748,16 +766,17 @@ function buildClassSummaryRows() {
       notOut: items.filter((item) => item.present && !item.out).length,
       waArrival: arrival,
       waDeparture: departure,
+      waAbsent: absentWa,
+      waNotPresent: notPresentWa,
     };
   }).sort((a, b) => a.className.localeCompare(b.className, 'id-ID') || a.branchName.localeCompare(b.branchName, 'id-ID'));
 }
 
 function classSummaryFilters() {
   const branch = $('#class-summary-branch-filter')?.value || 'all';
-  const className = $('#class-summary-class-filter')?.value || 'all';
   return classSummaryRowsState.filter((row) => {
     const branchMatch = branch === 'all' || row.branchId === String(branch).trim().toUpperCase() || normalizeSearch(row.branchName) === normalizeSearch(branch);
-    return branchMatch && (className === 'all' || row.className === className);
+    return branchMatch && (!classSummarySelectedClasses.size || classSummarySelectedClasses.has(row.className));
   });
 }
 
@@ -768,17 +787,20 @@ function detailButton(metric, value, rowKey, label = '') {
 
 function renderClassSummaryFilters(rows) {
   const branchSelect = $('#class-summary-branch-filter');
-  const classSelect = $('#class-summary-class-filter');
-  if (!branchSelect || !classSelect) return;
+  const classOptions = $('#class-summary-class-options');
+  const classLabel = $('#class-summary-class-label');
+  const allCheckbox = $('#class-summary-class-menu input[value="all"]');
+  if (!branchSelect || !classOptions || !classLabel || !allCheckbox) return;
   const branchValue = branchSelect.value || 'all';
-  const classValue = classSelect.value || 'all';
   const branchesForSummary = [...new Map(rows.filter((row) => row.branchId || row.branchName).map((row) => [row.branchId || row.branchName, row])).values()];
   branchSelect.innerHTML = '<option value="all">Semua cabang</option>' + branchesForSummary.sort((a, b) => a.branchName.localeCompare(b.branchName, 'id-ID')).map((row) => `<option value="${esc(row.branchId || row.branchName)}">${esc(row.branchName)}</option>`).join('');
   branchSelect.value = branchesForSummary.some((row) => (row.branchId || row.branchName) === branchValue) ? branchValue : 'all';
   const selectedBranch = branchSelect.value;
   const classNames = [...new Set(rows.filter((row) => selectedBranch === 'all' || row.branchId === selectedBranch || normalizeSearch(row.branchName) === normalizeSearch(selectedBranch)).map((row) => row.className))].sort((a, b) => a.localeCompare(b, 'id-ID'));
-  classSelect.innerHTML = '<option value="all">Semua kelas</option>' + classNames.map((name) => `<option value="${esc(name)}">${esc(name)}</option>`).join('');
-  classSelect.value = classNames.includes(classValue) ? classValue : 'all';
+  classSummarySelectedClasses = new Set([...classSummarySelectedClasses].filter((name) => classNames.includes(name)));
+  classOptions.innerHTML = classNames.map((name) => `<label><input type="checkbox" value="${esc(name)}"${classSummarySelectedClasses.has(name) ? ' checked' : ''} /> ${esc(name)}</label>`).join('');
+  allCheckbox.checked = classSummarySelectedClasses.size === 0;
+  classLabel.textContent = classSummarySelectedClasses.size === 0 ? 'Semua kelas' : classSummarySelectedClasses.size === 1 ? [...classSummarySelectedClasses][0] : `${classSummarySelectedClasses.size} kelas dipilih`;
 }
 
 function summaryAggregate(rows) {
@@ -801,7 +823,8 @@ function renderClassSummaryStats(rows) {
     ['WA Kehadiran', `${aggregate.arrival.processed} / ${aggregate.arrival.delivered}`, 'waArrival', 'orange'],
     ['WA Kepulangan', `${aggregate.departure.processed} / ${aggregate.departure.delivered}`, 'waDeparture', 'orange'],
   ];
-  stats.innerHTML = cards.map(([label, value, metric, tone]) => `<div class="summary-stat-card"><div class="stat-card-top"><span class="stat-label">${esc(label.toUpperCase())}</span><span class="stat-card-icon ${tone}">◫</span></div><button type="button" class="summary-stat-value" data-class-summary-stat="${metric}">${esc(value)}</button><small>Hari ini</small></div>`).join('');
+  const dateLabel = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${classSummaryDateKey()}T00:00:00+08:00`));
+  stats.innerHTML = cards.map(([label, value, metric, tone]) => `<div class="summary-stat-card"><div class="stat-card-top"><span class="stat-label">${esc(label.toUpperCase())}</span><span class="stat-card-icon ${tone}">◫</span></div><button type="button" class="summary-stat-value" data-class-summary-stat="${metric}">${esc(value)}</button><small>${esc(dateLabel)}</small></div>`).join('');
 }
 
 function renderClassSummary() {
@@ -811,7 +834,8 @@ function renderClassSummary() {
   const body = $('#class-summary-body');
   const empty = $('#class-summary-empty');
   if (!body || !content) return;
-  if ($('#class-summary-date')) $('#class-summary-date').textContent = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
+  const selectedDate = classSummaryDateKey();
+  if ($('#class-summary-date')) $('#class-summary-date').textContent = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'long', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date(`${selectedDate}T00:00:00+08:00`));
   if (classSummaryLoadState === 'loading' || (API_BASE && (studentsLoadState === 'loading' || deviceBindingsLoadState === 'loading'))) {
     loading.hidden = false; error.hidden = true; content.hidden = true; return;
   }
@@ -823,7 +847,7 @@ function renderClassSummary() {
   renderClassSummaryFilters(classSummaryRowsState);
   const rows = classSummaryFilters();
   renderClassSummaryStats(rows);
-  body.innerHTML = rows.map((row) => `<tr><td><b>${esc(row.className)}</b><small class="summary-branch-label">${esc(row.branchName)}</small></td><td>${detailButton('total', row.total, row.key, 'Total siswa')}</td><td>${detailButton('present', row.present, row.key, 'Hadir')}</td><td>${detailButton('absent', row.absent, row.key, 'Belum hadir')}</td><td>${detailButton('out', row.out, row.key, 'Pulang')}</td><td>${detailButton('notOut', row.notOut, row.key, 'Belum pulang')}</td><td>${detailButton('waArrival', `${row.waArrival.processed} / ${row.waArrival.delivered}`, row.key, 'WA Kehadiran')}</td><td>${detailButton('waDeparture', `${row.waDeparture.processed} / ${row.waDeparture.delivered}`, row.key, 'WA Kepulangan')}</td></tr>`).join('');
+  body.innerHTML = rows.map((row) => `<tr><td><b>${esc(row.className)}</b><small class="summary-branch-label">${esc(row.branchName)}</small></td><td>${detailButton('total', row.total, row.key, 'Total siswa')}</td><td>${detailButton('present', row.present, row.key, 'Hadir')}</td><td>${detailButton('absent', row.absent, row.key, 'Belum hadir')}</td><td>${detailButton('out', row.out, row.key, 'Pulang')}</td><td>${detailButton('notOut', row.notOut, row.key, 'Belum pulang')}</td><td>${detailButton('waArrival', `${row.waArrival.processed} / ${row.waArrival.delivered}`, row.key, 'WA Kehadiran')}</td><td>${detailButton('waDeparture', `${row.waDeparture.processed} / ${row.waDeparture.delivered}`, row.key, 'WA Kepulangan')}</td><td>${detailButton('waAbsent', `${row.waAbsent.processed} / ${row.waAbsent.delivered}`, row.key, 'WA Belum Hadir')}</td><td>${detailButton('waNotPresent', `${row.waNotPresent.processed} / ${row.waNotPresent.delivered}`, row.key, 'WA Tidak Hadir')}</td></tr>`).join('');
   empty.hidden = rows.length !== 0;
 }
 
@@ -834,8 +858,7 @@ function detailItemsFor(row, metric) {
   if (metric === 'absent') return row.items.filter((item) => !item.present);
   if (metric === 'out') return row.items.filter((item) => item.out);
   if (metric === 'notOut') return row.items.filter((item) => item.present && !item.out);
-  if (metric === 'waArrival') return row.waArrival.eligible;
-  if (metric === 'waDeparture') return row.waDeparture.eligible;
+  if (WA_SUMMARY_CONFIG[metric]) return row[metric].eligible;
   return row.items;
 }
 
@@ -847,14 +870,15 @@ function detailStatus(item, type) {
 function openClassDetail(metric, rowKey, breakdownStatus = '') {
   const row = classSummaryRowsState.find((item) => item.key === rowKey);
   if (!row) return;
-  const titleMap = { total: 'Total Siswa', registered: 'Perangkat Terdaftar', unregistered: 'Belum Terdaftar', present: 'Hadir', absent: 'Belum Hadir', out: 'Pulang', notOut: 'Belum Pulang', waArrival: 'WA Kehadiran', waDeparture: 'WA Kepulangan' };
-  const type = metric === 'waDeparture' ? 'departure' : 'arrival';
+  const titleMap = { total: 'Total Siswa', registered: 'Perangkat Terdaftar', unregistered: 'Belum Terdaftar', present: 'Hadir', absent: 'Belum Hadir', out: 'Pulang', notOut: 'Belum Pulang', ...Object.fromEntries(Object.entries(WA_SUMMARY_CONFIG).map(([key, value]) => [key, value.title])) };
+  const waConfig = WA_SUMMARY_CONFIG[metric];
+  const type = waConfig?.type || '';
   let items = detailItemsFor(row, metric);
-  if (breakdownStatus && (metric === 'waArrival' || metric === 'waDeparture')) items = items.filter((item) => normalizeWaStatusValue(item[type === 'departure' ? 'waDeparture' : 'waArrival']?.status) === breakdownStatus);
+  if (breakdownStatus && waConfig) items = items.filter((item) => normalizeWaStatusValue(item[metric]?.status) === breakdownStatus);
   classDetailState = { title: `${titleMap[metric] || 'Detail'} — ${row.className}`, items, metric, rowKey, type, breakdownStatus };
   $('#class-detail-title').textContent = `${classDetailState.title} (${items.length})`;
   const breakdown = $('#class-detail-breakdown');
-  const counts = metric === 'waArrival' ? row.waArrival : metric === 'waDeparture' ? row.waDeparture : null;
+  const counts = waConfig ? row[metric] : null;
   breakdown.innerHTML = counts ? [['unprocessed', 'Belum Diproses', counts.unprocessed], ['processed', 'Sudah Diproses', counts.processed], ['delivered', 'Sudah Terkirim', counts.delivered]].map(([status, label, count]) => `<button type="button" class="detail-breakdown-button${breakdownStatus === status ? ' active' : ''}" data-class-breakdown="${status}"><b>${count}</b><span>${label}</span></button>`).join('') : '';
   $('#class-detail-search').value = '';
   $('#class-detail-modal').hidden = false;
@@ -868,9 +892,9 @@ function renderClassDetail() {
   const items = classDetailState.items.filter((item) => !query || normalizeSearch(item.student.name).includes(query) || normalizeSearch(item.student.id).includes(query));
   const { metric, type } = classDetailState;
   list.innerHTML = items.length ? items.map((item, index) => {
-    const student = item.student; const status = type ? detailStatus(item, type === 'departure' ? 'waDeparture' : 'waArrival') : '';
+    const student = item.student; const waConfig = WA_SUMMARY_CONFIG[metric]; const status = waConfig ? detailStatus(item, metric) : '';
     const registeredDate = item.binding?.boundAt ? new Intl.DateTimeFormat('id-ID', { dateStyle: 'medium', timeZone: 'Asia/Makassar' }).format(new Date(item.binding.boundAt)) : 'Terdaftar';
-    const details = metric === 'registered' ? `${student.className || '—'} · ${registeredDate} · 🟢 Aktif` : metric === 'unregistered' || metric === 'absent' ? `${student.className || '—'} · ${metric === 'absent' ? '🔴 Belum Hadir' : '🔴 Belum Terdaftar'}` : metric === 'waArrival' || metric === 'waDeparture' ? `${student.className || '—'} · ${status}` : `${student.className || '—'} · Datang ${item.record?.checkIn || '—'} · Pulang ${item.record?.checkOut || '—'}`;
+    const details = metric === 'registered' ? `${student.className || '—'} · ${registeredDate} · 🟢 Aktif` : metric === 'unregistered' || metric === 'absent' ? `${student.className || '—'} · ${metric === 'absent' ? '🔴 Belum Hadir' : '🔴 Belum Terdaftar'}` : waConfig ? `${student.className || '—'} · ${status}` : `${student.className || '—'} · Datang ${item.record?.checkIn || '—'} · Pulang ${item.record?.checkOut || '—'}`;
     return `<div class="class-detail-item"><span class="detail-index">${index + 1}</span><span class="student-avatar">${initials(student.name)}</span><div><b>${esc(student.name)}</b><small>${esc(details)}</small></div></div>`;
   }).join('') : '<div class="class-detail-empty">Siswa tidak ditemukan.</div>';
 }
@@ -881,11 +905,12 @@ function openClassSummaryStat(metric, breakdownStatus = '') {
   const rows = classSummaryFilters();
   const allItems = rows.flatMap((row) => row.items);
   const unique = [...new Map(allItems.map((item) => [String(item.student.id).trim().toUpperCase(), item])).values()];
-  const type = metric === 'waDeparture' ? 'departure' : 'arrival';
-  let items = metric === 'registered' ? unique.filter((item) => item.registered) : metric === 'present' ? unique.filter((item) => item.present) : metric === 'out' ? unique.filter((item) => item.out) : metric === 'waArrival' ? unique.filter((item) => item.present) : metric === 'waDeparture' ? unique.filter((item) => item.out) : unique;
-  if (breakdownStatus && (metric === 'waArrival' || metric === 'waDeparture')) items = items.filter((item) => normalizeWaStatusValue(item[type === 'departure' ? 'waDeparture' : 'waArrival']?.status) === breakdownStatus);
-  const titleMap = { total: 'Total Siswa', registered: 'Perangkat Terdaftar', present: 'Hadir', out: 'Pulang', waArrival: 'WA Kehadiran', waDeparture: 'WA Kepulangan' };
-  const counts = metric === 'waArrival' ? waCounts(unique, 'arrival') : metric === 'waDeparture' ? waCounts(unique, 'departure') : null;
+  const waConfig = WA_SUMMARY_CONFIG[metric];
+  const type = waConfig?.type || '';
+  const counts = waConfig ? waCounts(unique, waConfig.type) : null;
+  let items = metric === 'registered' ? unique.filter((item) => item.registered) : metric === 'present' ? unique.filter((item) => item.present) : metric === 'out' ? unique.filter((item) => item.out) : counts ? counts.eligible : unique;
+  if (breakdownStatus && waConfig) items = items.filter((item) => normalizeWaStatusValue(item[metric]?.status) === breakdownStatus);
+  const titleMap = { total: 'Total Siswa', registered: 'Perangkat Terdaftar', present: 'Hadir', out: 'Pulang', ...Object.fromEntries(Object.entries(WA_SUMMARY_CONFIG).map(([key, value]) => [key, value.title])) };
   classDetailState = { title: `${titleMap[metric] || 'Detail'} — Semua Kelas`, items, metric, type, breakdownStatus };
   $('#class-detail-title').textContent = `${classDetailState.title} (${items.length})`;
   $('#class-detail-breakdown').innerHTML = counts ? [['unprocessed', 'Belum Diproses', counts.unprocessed], ['processed', 'Sudah Diproses', counts.processed], ['delivered', 'Sudah Terkirim', counts.delivered]].map(([status, label, count]) => `<button type="button" class="detail-breakdown-button${breakdownStatus === status ? ' active' : ''}" data-class-summary-breakdown="${status}"><b>${count}</b><span>${label}</span></button>`).join('') : '';
@@ -964,7 +989,8 @@ function setView(view) {
   if (view === 'admin') { renderDeviceManagement(); loadDeviceBindings().then(renderDeviceManagement); }
   if (view === 'class-summary') {
     classSummaryLoadState = 'loading'; renderClassSummary();
-    Promise.all([loadStudents(), loadDeviceBindings(), loadAttendance(), loadWaStatuses()]).then(() => { classSummaryLoadState = 'ready'; renderClassSummary(); }).catch((error) => { classSummaryLoadState = 'error'; console.warn('[CLASS SUMMARY] Load failed', { message: error?.message || String(error) }); renderClassSummary(); });
+    const selectedDate = classSummaryDateKey();
+    Promise.all([loadStudents(), loadDeviceBindings(), loadAttendance(selectedDate), loadWaStatuses(selectedDate)]).then((results) => { classSummaryLoadState = results[2] && results[3] ? 'ready' : 'error'; renderClassSummary(); }).catch((error) => { classSummaryLoadState = 'error'; console.warn('[CLASS SUMMARY] Load failed', { message: error?.message || String(error) }); renderClassSummary(); });
   }
   if (view === 'branch-barcode') renderBranchBarcodes();
   window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1214,8 +1240,13 @@ $('#device-search').addEventListener('input', renderDeviceManagement); $('#devic
 });
 $('#refresh-branch-barcode').addEventListener('click', renderBranchBarcodes); $('#print-all-branch-barcode').addEventListener('click', () => { $$('.branch-barcode-card').forEach(card => card.classList.add('print-target')); window.print(); $$('.branch-barcode-card').forEach(card => card.classList.remove('print-target')); });
 $('#student-qr-class-filter').addEventListener('change', renderBranchBarcodes);
-$('#class-summary-branch-filter').addEventListener('change', renderClassSummary); $('#class-summary-class-filter').addEventListener('change', renderClassSummary); $('#class-detail-search').addEventListener('input', renderClassDetail); $('#class-detail-close').addEventListener('click', closeClassDetail); $('#class-detail-modal').addEventListener('click', (event) => { if (event.target.id === 'class-detail-modal') closeClassDetail(); });
-$('#refresh-class-summary').addEventListener('click', async (event) => { const button = event.currentTarget; if (button.disabled) return; const original = button.innerHTML; button.disabled = true; button.innerHTML = '↻ Memuat...'; classSummaryLoadState = 'loading'; renderClassSummary(); try { await Promise.all([loadStudents(), loadDeviceBindings(), loadAttendance(), loadWaStatuses()]); classSummaryLoadState = 'ready'; renderClassSummary(); showToast('Rekap kelas berhasil disegarkan.'); } catch (error) { classSummaryLoadState = 'error'; console.warn('[CLASS SUMMARY] Refresh failed', { message: error?.message || String(error) }); renderClassSummary(); showToast('Data rekap kelas belum dapat dimuat. Silakan coba lagi.', 'warn'); } finally { button.disabled = false; button.innerHTML = original; } });
+$('#class-summary-branch-filter').addEventListener('change', renderClassSummary); $('#class-detail-search').addEventListener('input', renderClassDetail); $('#class-detail-close').addEventListener('click', closeClassDetail); $('#class-detail-modal').addEventListener('click', (event) => { if (event.target.id === 'class-detail-modal') closeClassDetail(); });
+$('#class-summary-class-toggle').addEventListener('click', (event) => { event.stopPropagation(); const menu = $('#class-summary-class-menu'); const willOpen = menu.hidden; menu.hidden = !willOpen; event.currentTarget.setAttribute('aria-expanded', String(willOpen)); });
+$('#class-summary-class-menu').addEventListener('click', (event) => event.stopPropagation());
+$('#class-summary-class-menu').addEventListener('change', (event) => { const checkbox = event.target.closest('input[type="checkbox"]'); if (!checkbox) return; if (checkbox.value === 'all') classSummarySelectedClasses.clear(); else if (checkbox.checked) classSummarySelectedClasses.add(checkbox.value); else classSummarySelectedClasses.delete(checkbox.value); renderClassSummary(); });
+document.addEventListener('click', (event) => { if (event.target.closest('#class-summary-class-filter')) return; const menu = $('#class-summary-class-menu'); const toggle = $('#class-summary-class-toggle'); if (menu && !menu.hidden) { menu.hidden = true; toggle?.setAttribute('aria-expanded', 'false'); } });
+$('#class-summary-date-filter').addEventListener('change', async (event) => { const input = event.currentTarget; if (!input.value) input.value = dateKey(); input.disabled = true; classSummaryLoadState = 'loading'; renderClassSummary(); try { const selectedDate = classSummaryDateKey(); const [attendanceOk, waOk] = await Promise.all([loadAttendance(selectedDate), loadWaStatuses(selectedDate)]); classSummaryLoadState = attendanceOk && waOk ? 'ready' : 'error'; renderClassSummary(); if (classSummaryLoadState === 'error') showToast('Data rekap pada tanggal tersebut belum dapat dimuat.', 'warn'); } catch (error) { classSummaryLoadState = 'error'; console.warn('[CLASS SUMMARY] Date filter failed', { message: error?.message || String(error) }); renderClassSummary(); showToast('Data rekap pada tanggal tersebut belum dapat dimuat.', 'warn'); } finally { input.disabled = false; } });
+$('#refresh-class-summary').addEventListener('click', async (event) => { const button = event.currentTarget; if (button.disabled) return; const original = button.innerHTML; button.disabled = true; button.innerHTML = '↻ Memuat...'; classSummaryLoadState = 'loading'; renderClassSummary(); try { const selectedDate = classSummaryDateKey(); const results = await Promise.all([loadStudents(), loadDeviceBindings(), loadAttendance(selectedDate), loadWaStatuses(selectedDate)]); classSummaryLoadState = results[2] && results[3] ? 'ready' : 'error'; renderClassSummary(); if (classSummaryLoadState === 'ready') showToast('Rekap kelas berhasil disegarkan.'); else showToast('Data rekap kelas belum dapat dimuat. Silakan coba lagi.', 'warn'); } catch (error) { classSummaryLoadState = 'error'; console.warn('[CLASS SUMMARY] Refresh failed', { message: error?.message || String(error) }); renderClassSummary(); showToast('Data rekap kelas belum dapat dimuat. Silakan coba lagi.', 'warn'); } finally { button.disabled = false; button.innerHTML = original; } });
 document.addEventListener('click', event => { const shareButton = event.target.closest('[data-share-message]'); if (shareButton) return openShareMessage(shareButton.dataset.shareMessage); const printButton = event.target.closest('[data-print-branch]'); if (printButton) return printBranchBarcode(printButton.dataset.printBranch); const downloadButton = event.target.closest('[data-download-qr]'); if (downloadButton) downloadStudentQrPng(downloadButton.dataset.downloadQr); });
 $('#share-message-whatsapp').addEventListener('click', event => { event.stopImmediatePropagation(); const type = $('#share-message-type').value; const studentId = shareMessageStudentId; $('#share-message-modal').hidden = true; openWhatsAppApp('regular'); if (studentId) openConfirm(studentId, type, true); }, true);
 $('#share-message-business')?.remove(); const shareWhatsAppButton = $('#share-message-whatsapp'); if (shareWhatsAppButton) shareWhatsAppButton.textContent = 'Pilih Grup 1O1'; const shareCloseButton = $('#share-message-close'); const shareCloseParent = shareCloseButton?.parentElement; const shareChannelActions = $('.share-channel-actions'); if (shareCloseButton && shareChannelActions) { shareChannelActions.append($('#share-message-copy'), shareWhatsAppButton, shareCloseButton); if (shareCloseParent && shareCloseParent !== shareChannelActions) shareCloseParent.remove(); } $('#share-message-type').addEventListener('change', updateShareMessagePreview); $('#share-message-whatsapp').addEventListener('click', () => { $('#share-message-modal').hidden = true; openWhatsAppApp('regular'); }); $('#share-message-copy').addEventListener('click', async () => { const row = allRows().find(({ student }) => student.id === shareMessageStudentId); if (!row) return; try { await navigator.clipboard.writeText(shareMessageFor(row.student, row.record, $('#share-message-type').value)); showToast('Pesan berhasil disalin.'); } catch { showToast('Pesan tidak dapat disalin di browser ini.', 'warn'); } }); $('#share-message-close').addEventListener('click', () => { $('#share-message-modal').hidden = true; shareMessageStudentId = null; });
@@ -1227,6 +1258,7 @@ window.addEventListener('beforeunload', stopCamera);
 const formattedToday = new Intl.DateTimeFormat('id-ID', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Makassar' }).format(new Date());
 $('#display-date').textContent = formattedToday;
 if ($('#table-date')) $('#table-date').textContent = formattedToday;
+if ($('#class-summary-date-filter')) { $('#class-summary-date-filter').value = dateKey(); $('#class-summary-date-filter').max = dateKey(); }
 populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity();
 Promise.all([loadStudents(), loadBranches()]).then(async () => { populateStudentAccounts(); renderBranchOptions(); renderClassOptions(); renderAll(); renderProfileIdentity(); if ($('#admin-view')?.classList.contains('active-view')) renderDeviceManagement(); const staffValid = await validateStaffSession(); if (staffValid && staffSession && !studentSession) { setView('dashboard'); loadDashboardData(); return; } if (!staffValid) setView('login'); return resumeStudentSession(); }).catch(() => {});
 renderProfileIdentity();
